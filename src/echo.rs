@@ -139,7 +139,7 @@ pub struct MainPhaseChoices(MainPhaseChoice, MainPhaseChoice);
 pub struct SabotagePhaseChoices(Option<Creature>, Option<Creature>);
 
 // A decision one of the players has to take
-pub enum TurnPhase {
+pub enum Phase {
     // Player (1/2) must pick one or two (if the seer status effect is active)
     // creatures and an edict to play
     Main1,
@@ -161,8 +161,25 @@ pub enum TurnPhase {
     Seer(MainPhaseChoices, SabotagePhaseChoices),
 }
 
+pub enum HiddenPhase {
+    // Both main phase 1 and 2 happen simultaneously
+    // in real life, therefor a player can't differentiate between them.
+    // (The fact they are separate is an implemenetation detail)
+    Main,
+    // Similar deal to the explanation above
+    // (both sabotage phases happen simultaneously!).
+    // By this point, only the edicts have been revealed!
+    // (which is why we cannot read the full MainPhaseChoice of the opponent)
+    SabotagePhase(MainPhaseChoice, Edict),
+    // The seer effect is getting resolved
+    // (the player must choose one of the two cards played
+    // in the main phase, and return the other to the hand)
+    // Holds the choices made in all previous phases
+    Seer(MainPhaseChoices, SabotagePhaseChoices),
+}
+
 // Fully determined game state
-pub struct GameState {
+pub struct GameState<'a> {
     // Player 1 score - player 2 score
     // - Negative => player 2 won
     // - Positive => player 1 won
@@ -179,11 +196,11 @@ pub struct GameState {
     // Stack of battlefields.
     // The tail of the list represents the current battle.
     // Elements get popped as battles take place.
-    battlefields: Vec<Battlefield>,
+    battlefields: &'a Vec<Battlefield>,
     // The next "decision" one of the players has to take
     // the player states are always arranged in such a way
     // to ensure the first player is the one taking the current decision.
-    phase: TurnPhase,
+    phase: Phase,
 }
 
 // Game state which only contains knowedge the current player
