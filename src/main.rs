@@ -1,5 +1,9 @@
+use crate::hash::EchoHash;
+
 mod echo;
+mod hash;
 
 fn main() {
-    println!("Hello, world!");
+    let result = echo::InfoSet::MAX;
+    println!("{}", result);
 }
