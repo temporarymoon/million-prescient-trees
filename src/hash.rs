@@ -8,7 +8,7 @@ impl HashResult {
     where
         T: EchoHash,
     {
-        return HashResult(self.0 * T::MAX + other.hash().0);
+        return HashResult(self.0 * T::MAX + other.echo_hash().0);
     }
 }
 
@@ -42,7 +42,7 @@ impl std::ops::Add<HashResult> for u64 {
 
 pub trait EchoHash {
     const MAX: u64;
-    fn hash(&self) -> HashResult;
+    fn echo_hash(&self) -> HashResult;
 }
 
 impl<T> EchoHash for Option<&T>
@@ -50,10 +50,10 @@ where
     T: EchoHash,
 {
     const MAX: u64 = 1 + T::MAX;
-    fn hash(&self) -> HashResult {
+    fn echo_hash(&self) -> HashResult {
         match self {
             Option::None => HashResult(0),
-            Option::Some(x) => HashResult(1 + x.hash().0),
+            Option::Some(x) => HashResult(1 + x.echo_hash().0),
         }
     }
 }
@@ -64,8 +64,8 @@ where
     B: EchoHash,
 {
     const MAX: u64 = A::MAX * B::MAX;
-    fn hash(&self) -> HashResult {
-        self.0.hash().extend(&self.1)
+    fn echo_hash(&self) -> HashResult {
+        self.0.echo_hash().extend(&self.1)
     }
 }
 
