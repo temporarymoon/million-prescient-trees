@@ -1,11 +1,9 @@
 #![allow(dead_code)]
 
 use std::hash::Hash;
+use super::helpers::Swap;
 
-use super::hash;
-use super::hash::{EchoHash, HashResult};
-
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub enum Battlefield {
     Mountain,
     Glade,
@@ -15,7 +13,7 @@ pub enum Battlefield {
     Plains,
 }
 
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub enum Creature {
     Wall,
     Seer,
@@ -54,15 +52,7 @@ impl Creature {
     }
 }
 
-impl EchoHash for Creature {
-    const MAX: u64 = 11;
-
-    fn echo_hash(&self) -> HashResult {
-        HashResult(*self as u64)
-    }
-}
-
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub enum Edict {
     Sabotage,
     Gambit,
@@ -81,12 +71,6 @@ impl Edict {
     ];
 }
 
-impl EchoHash for Edict {
-    const MAX: u64 = 5;
-    fn echo_hash(&self) -> HashResult {
-        HashResult(*self as u64)
-    }
-}
 
 use Battlefield::*;
 
@@ -111,15 +95,9 @@ impl Battlefield {
     }
 }
 
-impl EchoHash for Battlefield {
-    const MAX: u64 = 5;
-    fn echo_hash(&self) -> HashResult {
-        HashResult(*self as u64)
-    }
-}
 
 // Different kind of lingering effects affecting a given player
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub enum PlayerStatusEffect {
     // The player gains 1 strength
     Mountain,
@@ -130,24 +108,29 @@ pub enum PlayerStatusEffect {
     // The player gains 1 strength and gains
     // an additional point by winning this battle
     Bard,
+    // This battle, lose 1 strength
+    Mercenary,
+    // The barbarian gains 2 strength if
+    // it gets played
+    Barbarian,
 }
 
 // Lingering effects affecting both players
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub enum GlobalStatusEffect {
     Night,
 }
 
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
 struct Bitfield(u16);
 
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
 struct CreatureSet(Bitfield);
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
 struct EdictSet(Bitfield);
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
 struct PlayerStatusEffects(Bitfield);
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
 struct GlobalStatusEffects(Bitfield);
 
 impl Bitfield {
@@ -162,36 +145,8 @@ impl Into<u64> for Bitfield {
     }
 }
 
-impl EchoHash for CreatureSet {
-    const MAX: u64 = 2 ^ 11;
-    fn echo_hash(&self) -> HashResult {
-        return HashResult(self.0 .0 as u64);
-    }
-}
-
-impl EchoHash for EdictSet {
-    const MAX: u64 = 2 ^ Edict::MAX;
-    fn echo_hash(&self) -> HashResult {
-        return HashResult(self.0.into());
-    }
-}
-
-impl EchoHash for PlayerStatusEffects {
-    const MAX: u64 = 2 ^ 4;
-    fn echo_hash(&self) -> HashResult {
-        return HashResult(self.0.into());
-    }
-}
-
-impl EchoHash for GlobalStatusEffects {
-    const MAX: u64 = 2 ^ 1;
-    fn echo_hash(&self) -> HashResult {
-        return HashResult(self.0.into());
-    }
-}
-
 // State involving only one of the players
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub struct PlayerState {
     creatures: CreatureSet,
     edicts: EdictSet,
@@ -208,18 +163,8 @@ impl PlayerState {
     }
 }
 
-impl EchoHash for PlayerState {
-    const MAX: u64 = EdictSet::MAX * PlayerStatusEffects::MAX * CreatureSet::MAX;
-    fn echo_hash(&self) -> HashResult {
-        self.edicts
-            .echo_hash()
-            .extend(&self.effects)
-            .extend(&self.creatures)
-    }
-}
-
 // What a player "knows" about it's opponent
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub struct HiddenPlayerState {
     // The edicts a player has in hand are fully determined by:
     //    {set of edicts} - {edicts previously played}
@@ -232,15 +177,8 @@ pub struct HiddenPlayerState {
     effects: PlayerStatusEffects,
 }
 
-impl EchoHash for HiddenPlayerState {
-    const MAX: u64 = EdictSet::MAX * PlayerStatusEffects::MAX;
-    fn echo_hash(&self) -> HashResult {
-        self.edicts.echo_hash().extend(&self.effects)
-    }
-}
-
 // Choice made by one of the players in the main phase
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub struct MainPhaseChoice {
     edict: Edict,
     // The player is only allowed to play two creatures
@@ -248,14 +186,24 @@ pub struct MainPhaseChoice {
     creatures: (Creature, Option<Creature>),
 }
 
-impl EchoHash for MainPhaseChoice {
-    const MAX: u64 = Edict::MAX * Creature::MAX * (1 + Creature::MAX);
-    fn echo_hash(&self) -> HashResult {
-        self.edict
-            .echo_hash()
-            .extend(&self.creatures.0)
-            .extend(&self.creatures.1.as_ref())
+impl MainPhaseChoice {
+    pub fn to_final(self) -> FinalMainPhaseChoice {
+        if self.creatures.1.is_some() {
+            panic!("Tried making main phase choice final before resolving seer phase");
+        }
+
+        FinalMainPhaseChoice {
+            edict: self.edict,
+            creature: self.creatures.0,
+        }
     }
+}
+
+// Similar to MainPhaseChoice but used after the seer phase gets resolved
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+pub struct FinalMainPhaseChoice {
+    edict: Edict,
+    creature: Creature,
 }
 
 // The number of main phases is always 2
@@ -265,7 +213,7 @@ type MainPhaseChoices = (MainPhaseChoice, MainPhaseChoice);
 type SabotagePhaseChoices = (Option<Creature>, Option<Creature>);
 
 // A decision one of the players has to take
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub enum Phase {
     // Player (1/2) must pick one or two (if the seer status effect is active)
     // creatures and an edict to play
@@ -304,7 +252,7 @@ impl Phase {
 }
 
 // Same as Phase but only containing the data the current player has access to
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub enum HiddenPhase {
     // Both main phase 1 and 2 happen simultaneously
     // in real life, therefor a player can't differentiate between them.
@@ -322,34 +270,6 @@ pub enum HiddenPhase {
     Seer(MainPhaseChoices, SabotagePhaseChoices),
 }
 
-impl HiddenPhase {
-    const MAIN_PHASE_MAX: u64 = 1;
-    const SABOTAGE_PHASE_MAX: u64 = MainPhaseChoice::MAX * Edict::MAX;
-    const SEER_PHASE_MAX: u64 = MainPhaseChoices::MAX * (1 + Creature::MAX) ^ 2;
-}
-
-impl EchoHash for HiddenPhase {
-    const MAX: u64 =
-        HiddenPhase::MAIN_PHASE_MAX + HiddenPhase::SABOTAGE_PHASE_MAX + HiddenPhase::SEER_PHASE_MAX;
-
-    fn echo_hash(&self) -> HashResult {
-        // Each branch has a different tag it adds in front of the hash
-        match self {
-            HiddenPhase::Main => HashResult(0),
-            HiddenPhase::SabotagePhase(main_choice, edict) => {
-                HiddenPhase::MAIN_PHASE_MAX + main_choice.echo_hash().extend(edict)
-            }
-            HiddenPhase::Seer(main_choices, sabotage_choices) => {
-                HiddenPhase::MAIN_PHASE_MAX
-                    + HiddenPhase::SABOTAGE_PHASE_MAX
-                    + main_choices
-                        .echo_hash()
-                        .extend(&sabotage_choices.0.as_ref())
-                        .extend(&sabotage_choices.1.as_ref())
-            }
-        }
-    }
-}
 
 // Transitions from a phase to another.
 // Not all (Phase, PhaseTransition) pairs are valid (obviously)
@@ -363,37 +283,19 @@ pub enum PhaseTransition {
 // - Negative => player 2 won
 // - Positive => player 1 won
 // - 0 => draw
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub struct Score(pub i8);
 
-impl EchoHash for Score {
-    // Scores can range from -25 to +25 (arbitrary bounds I chose)
-    // 51 possibles scores:
-    //    [-25, 25] => [0, 50] => [0, 51)
-    const MAX: u64 = 51;
-    fn echo_hash(&self) -> HashResult {
-        HashResult((self.0 + 25) as u64)
-    }
-}
 
 // Stack of battlefields for a match.
 // The tail of the list represents the current battle.
 // Elements get popped as battles take place.
-#[derive(PartialEq, Eq, Clone)]
+#[derive(PartialEq, Eq, Hash, Clone)]
 pub struct Battlefields(Vec<Battlefield>);
 
-impl EchoHash for Battlefields {
-    // the +1 is there because a vec with <= 4 elements
-    // is essentially equivalent to:
-    //     (Option<T>) ^ 4
-    const MAX: u64 = (Battlefield::MAX + 1) ^ 4;
-    fn echo_hash(&self) -> HashResult {
-        hash::from_vec(&self.0)
-    }
-}
 
 // Fully determined game state
-#[derive(PartialEq, Eq, Clone)]
+#[derive(PartialEq, Eq, Hash, Clone)]
 pub struct GameState {
     score: Score,
     // Player specific state
@@ -424,6 +326,121 @@ impl GameState {
             phase: self.phase.conceal(),
         };
     }
+
+    // change the phase we are in
+    pub fn switch_to(&self, phase: Phase) -> Self {
+        GameState {
+            battlefields: self.battlefields.clone(),
+            phase,
+            ..*self
+        }
+    }
+
+    // change the phase we are in while also flipping the player
+    pub fn flip_to(&self, phase: Phase) -> Self {
+        GameState {
+            score: Score(-self.score.0),
+            player_states: self.player_states.swap(),
+            battlefields: self.battlefields.clone(),
+            phase,
+            ..*self
+        }
+    }
+
+    fn resolve_battle(
+        &self,
+        main_choices: (FinalMainPhaseChoice, FinalMainPhaseChoice),
+        sabotage_choices: (Option<Creature>, Option<Creature>),
+    ) -> Self {
+        unimplemented!()
+    }
+
+    fn resolve_sabotage(
+        &self,
+        main_choices: MainPhaseChoices,
+        sabotage_choices: (Option<Creature>, Option<Creature>),
+    ) -> (Self, bool) {
+        if main_choices.0.creatures.1.is_some() {
+            (
+                self.switch_to(Phase::Seer(main_choices, sabotage_choices)),
+                false,
+            )
+        } else if main_choices.1.creatures.1.is_some() {
+            (
+                self.flip_to(Phase::Seer(main_choices.swap(), sabotage_choices)),
+                true,
+            )
+        } else {
+            (
+                self.resolve_battle(
+                    (main_choices.0.to_final(), main_choices.1.to_final()),
+                    sabotage_choices,
+                ),
+                false,
+            )
+        }
+    }
+
+    pub fn apply_transition(&self, transition: PhaseTransition) -> Option<(Self, bool)> {
+        match (self.phase, transition) {
+            (Phase::Main1, PhaseTransition::Main(choice)) => {
+                Some((self.flip_to(Phase::Main2(choice)), true))
+            }
+            (Phase::Main2(first_choice), PhaseTransition::Main(second_choice)) => Some({
+                let choices = (first_choice, second_choice);
+                if first_choice.edict == Edict::Sabotage {
+                    (self.switch_to(Phase::SabotagePhase1(choices)), false)
+                } else if second_choice.edict == Edict::Sabotage {
+                    (self.flip_to(Phase::SabotagePhase1(choices.swap())), true)
+                } else {
+                    self.resolve_sabotage(choices, (None, None))
+                }
+            }),
+            (Phase::SabotagePhase1(main_choices), PhaseTransition::Sabotage(creature)) => Some({
+                if main_choices.1.edict == Edict::Sabotage {
+                    (
+                        self.flip_to(Phase::SabotagePhase2(main_choices.swap(), creature)),
+                        true,
+                    )
+                } else {
+                    self.resolve_sabotage(main_choices, (Some(creature), None))
+                }
+            }),
+            (
+                Phase::SabotagePhase2(main_choices, first_sabotage),
+                PhaseTransition::Sabotage(creature),
+            ) => Some({
+                self.resolve_sabotage(main_choices, (Some(creature), Some(first_sabotage)))
+            }),
+            (Phase::Seer(main_choices, sabotage_choices), PhaseTransition::Seer(creature)) => {
+                // The main choice made by the same player who is performing
+                // the seer phase transition.
+                let main_choice = main_choices.0;
+
+                match main_choice.creatures.1 {
+                    Some(second_creature)
+                        if second_creature == creature || main_choice.creatures.0 == creature =>
+                    {
+                        Some((
+                            self.resolve_battle(
+                                (
+                                    FinalMainPhaseChoice {
+                                        edict: main_choice.edict,
+                                        creature,
+                                    },
+                                    main_choices.1.to_final(),
+                                ),
+                                sabotage_choices,
+                            ),
+                            false,
+                        ))
+                    }
+                    _ => panic!("Invalid choice for seer phase"),
+                }
+            }
+            _ => None,
+        }
+    }
 }
 
 // Game state which only contains knowedge the current player
@@ -433,7 +450,7 @@ impl GameState {
 // Main differences are:
 // - opponent's state is hidden
 // - the identity of the overseer is hidden
-#[derive(PartialEq, Eq, Clone)]
+#[derive(PartialEq, Eq, Hash, Clone)]
 pub struct InfoSet {
     // The player only has full information about themselves!
     player_states: (PlayerState, HiddenPlayerState),
@@ -503,32 +520,6 @@ impl InfoSet {
             }
         }
         choices
-    }
-}
-
-impl EchoHash for InfoSet {
-    const MAX: u64 = PlayerState::MAX
-        * HiddenPlayerState::MAX
-        * CreatureSet::MAX
-        * Score::MAX
-        * GlobalStatusEffects::MAX
-        * Battlefields::MAX
-        * HiddenPhase::MAX;
-    fn echo_hash(&self) -> HashResult {
-        let base = self.player_states;
-
-        base.echo_hash()
-            .extend(&self.graveyard)
-            .extend(&self.effects)
-            .extend(&self.battlefields)
-            .extend(&self.score)
-            .extend(&self.phase)
-    }
-}
-
-impl Hash for InfoSet {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        state.write_u64(self.echo_hash().0)
     }
 }
 

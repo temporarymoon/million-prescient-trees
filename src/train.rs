@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use crate::echo::{CompleteGameState, InfoSet, PhaseTransition, Score};
+use crate::{echo::{CompleteGameState, InfoSet, PhaseTransition, Score}, helpers::{conditional_swap, zeroes}};
 
 pub struct Node {
     regret_sum: Vec<f32>,
@@ -25,20 +25,6 @@ fn normalize_vec(vec: &mut Vec<f32>) {
         } else {
             *value = 1.0 / sum;
         }
-    }
-}
-
-fn zeroes(size: usize) -> Vec<f32> {
-    let mut vec = Vec::with_capacity(size);
-    vec.fill(0.0);
-    vec
-}
-
-fn conditional_swap<T>(pair: (T, T), should_swap: bool) -> (T, T) {
-    if should_swap {
-        (pair.1, pair.0)
-    } else {
-        pair
     }
 }
 
