@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+use crate::helpers::VEC_SIZE;
+
 use super::helpers::Swap;
 use rand::prelude::SliceRandom;
 use rand::thread_rng;
@@ -58,11 +60,13 @@ impl Creature {
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub enum Edict {
+    // Victory point edicts
+    RileThePublic,
+    DivertAttention,
+    // Strength edicts
     Sabotage,
     Gambit,
     Ambush,
-    RileThePublic,
-    DivertAttention,
 }
 
 impl Edict {
@@ -790,47 +794,61 @@ impl GameState {
     pub fn new() -> Self {
         let rng = &mut thread_rng();
 
-        let mut cards = Vec::from(Creature::CREATURES);
-        cards.shuffle(rng);
-        cards = vec![
-            Rogue, Witch, Diplomat, Seer, Barbarian, Monarch, Ranger, Wall, Bard, Steward,
-            Mercenary,
-        ];
-        let overseer = cards.pop().unwrap();
+        // let mut cards = Vec::from(Creature::CREATURES);
+        // cards.shuffle(rng);
+        // cards = vec![
+        //     Rogue, Witch, Diplomat, Seer, Barbarian, Monarch, Ranger, Wall, Bard, Steward,
+        //     Mercenary,
+        // ];
+        let mut p2_card_pool = vec![Monarch, Ranger, Barbarian, Bard, Steward, Mercenary];
+        // p2_card_pool.shuffle(rng);
+        let overseer = p2_card_pool.pop().unwrap();
+        // println!("Overseer: {:?}", overseer);
 
-        let mut battlefields = Vec::from(Battlefield::BATTLEFIELDS);
-        battlefields.pop();
-        battlefields.pop();
-        battlefields.pop();
-        battlefields.pop();
-        battlefields.shuffle(rng);
+        // let mut battlefields = Vec::from(Battlefield::BATTLEFIELDS);
+        // battlefields.shuffle(rng);
+        // let mut battlefields = SmallVec::from_vec(battlefields);
+        // battlefields.pop();
+        // battlefields.pop();
+        // battlefields.pop();
+        // battlefields.pop();
         let battlefields = smallvec![
             Battlefield::Night,
             Battlefield::Urban,
             Battlefield::Mountain,
-            Battlefield::LastStrand,
+            // Battlefield::LastStrand,
         ];
+
+        // let cards_in_hands = 5;
 
         let mut p1_cards = CreatureSet(Bitfield::new());
         let mut p2_cards = CreatureSet(Bitfield::new());
 
-        for (index, creature) in cards.iter().enumerate() {
-            if index < 5 {
-                p1_cards.0.add(*creature as u8);
-            } else {
-                p2_cards.0.add(*creature as u8);
-            }
+        for card in vec![Rogue, Witch, Diplomat, Seer, Wall] {
+            p1_cards.0.add(card as u8);
         }
 
+        for card in p2_card_pool {
+            p2_cards.0.add(card as u8);
+        }
+
+        // for (index, creature) in cards.iter().enumerate() {
+        //     if index < cards_in_hands {
+        //         p1_cards.0.add(*creature as u8);
+        //     } else if index < cards_in_hands * 2 {
+        //         p2_cards.0.add(*creature as u8);
+        //     }
+        // }
+
         GameState {
-            score: Score(0),
+            score: Score(5),
             player_states: (PlayerState::new(p1_cards), PlayerState::new(p2_cards)),
             graveyard: CreatureSet(Bitfield::new()),
             overseer,
             effects: GlobalStatusEffects(Bitfield::new()),
             battlefields,
             phase: Phase::Main1,
-        }
+        }.flip_to(Phase::Main1).to_game_state().unwrap()
     }
 
     // Return only the infromation the current player should have acceess to
@@ -996,6 +1014,14 @@ impl GameState {
     }
 }
 
+// This is essentially GameState \ InfoSet
+// #[derive(PartialEq, Eq, Hash, Clone, Debug)]
+// pub struct HiddenInfoSet {
+//     opponent_cards: CreatureSet,
+//     overseer: Creature,
+//     phase: Option<HiddenPhaseInfo>
+// }
+
 // Game state which only contains knowedge the current player
 // has of the game.
 // Eg: there's no info about the cards the opponent has in hand
@@ -1022,8 +1048,8 @@ pub struct InfoSet {
 }
 
 impl InfoSet {
-    pub fn available_actions(&self) -> Vec<PhaseTransition> {
-        let mut choices = Vec::new();
+    pub fn available_actions(&self) -> SmallVec<[PhaseTransition; VEC_SIZE]> {
+        let mut choices = SmallVec::new();
         match self.phase {
             HiddenPhase::Main => {
                 let effects = self.player_states.0.effects.0;
@@ -1088,13 +1114,19 @@ impl InfoSet {
     }
 }
 
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(PartialEq, Eq, Hash, Debug, Clone)]
 pub enum CompleteGameState {
     Finished(Score),
     Unfinished(GameState),
 }
 
 impl CompleteGameState {
+    pub fn is_finished(&self) -> bool {
+        match self {
+            CompleteGameState::Finished(_) => true,
+            CompleteGameState::Unfinished(_) => false,
+        }
+    }
     pub fn to_game_state(self) -> Option<GameState> {
         match self {
             CompleteGameState::Finished(_) => None,
