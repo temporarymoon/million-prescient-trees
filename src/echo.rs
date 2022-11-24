@@ -655,13 +655,13 @@ impl FullBattleContext {
 
     pub fn advance_game_state(&self, game_state: &GameState) -> CompleteGameState {
         let battle_result = self.battle_result();
-        assert_eq!(battle_result, self.flip().battle_result().flip());
+        // assert_eq!(battle_result, self.flip().battle_result().flip());
 
         let score_delta = self.battle_score_delta(battle_result);
-        assert_eq!(
-            score_delta,
-            -self.flip().battle_score_delta(battle_result.flip())
-        );
+        // assert_eq!(
+        //     score_delta,
+        //     -self.flip().battle_score_delta(battle_result.flip())
+        // );
 
         let score = Score(game_state.score.0 + score_delta);
 
@@ -773,21 +773,21 @@ impl FullBattleContext {
 // Fully determined game state
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub struct GameState {
-    score: Score,
+    pub score: Score,
     // Player specific state
-    player_states: (PlayerState, PlayerState),
+    pub player_states: (PlayerState, PlayerState),
     // All the creature played so far
-    graveyard: CreatureSet,
+    pub graveyard: CreatureSet,
     // The one creature which neither player has drawn
-    overseer: Creature,
+    pub overseer: Creature,
     // Lingering effects
-    effects: GlobalStatusEffects,
+    pub effects: GlobalStatusEffects,
     // Stack of battlefields.
     pub battlefields: Battlefields,
     // The next "decision" one of the players has to take
     // the player states are always arranged in such a way
     // to ensure the first player is the one taking the current decision.
-    phase: Phase,
+    pub phase: Phase,
 }
 
 impl GameState {
@@ -801,7 +801,7 @@ impl GameState {
         //     Mercenary,
         // ];
         let mut p2_card_pool = vec![Monarch, Ranger, Barbarian, Bard, Steward, Mercenary];
-        // p2_card_pool.shuffle(rng);
+        p2_card_pool.shuffle(rng);
         let overseer = p2_card_pool.pop().unwrap();
         // println!("Overseer: {:?}", overseer);
 
@@ -813,10 +813,10 @@ impl GameState {
         // battlefields.pop();
         // battlefields.pop();
         let battlefields = smallvec![
-            Battlefield::Night,
+            // Battlefield::Night,
             Battlefield::Urban,
             Battlefield::Mountain,
-            // Battlefield::LastStrand,
+            Battlefield::LastStrand,
         ];
 
         // let cards_in_hands = 5;
@@ -841,14 +841,17 @@ impl GameState {
         // }
 
         GameState {
-            score: Score(5),
+            score: Score(0),
             player_states: (PlayerState::new(p1_cards), PlayerState::new(p2_cards)),
             graveyard: CreatureSet(Bitfield::new()),
             overseer,
             effects: GlobalStatusEffects(Bitfield::new()),
             battlefields,
             phase: Phase::Main1,
-        }.flip_to(Phase::Main1).to_game_state().unwrap()
+        }
+        .flip_to(Phase::Main1)
+        .to_game_state()
+        .unwrap()
     }
 
     // Return only the infromation the current player should have acceess to
@@ -861,6 +864,16 @@ impl GameState {
             battlefields: self.battlefields.clone(),
             phase: self.phase.conceal(),
         };
+    }
+
+    pub fn max_score(&self) -> u8 {
+        let mut total = 0;
+
+        for battlefield in &self.battlefields {
+            total += battlefield.reward();
+        }
+
+        return total;
     }
 
     // change the phase we are in

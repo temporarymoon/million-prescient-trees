@@ -1,15 +1,15 @@
 #![allow(dead_code)]
 #![allow(unreachable_code)]
 
-use std::collections::HashSet;
-
-use rand::Rng;
+use indicatif::{ProgressBar, ProgressStyle};
+use rand::{Rng, RngCore};
 use rustc_hash::FxHashMap;
 use smallvec::{smallvec, SmallVec};
 
 use crate::{
-    echo::{CompleteGameState, GameState, InfoSet, PhaseTransition, Score},
+    echo::{CompleteGameState, GameState, InfoSet, Phase, PhaseTransition, Score},
     helpers::{conditional_swap, normalize_vec, roulette, VEC_SIZE},
+    montecarlo::estimate_utility,
 };
 
 #[derive(Debug)]
@@ -19,6 +19,8 @@ pub struct Node {
     strategy_sum: SmallVec<[f32; VEC_SIZE]>,
     actions: SmallVec<[PhaseTransition; VEC_SIZE]>,
     pruned: Option<f32>,
+    estimated_utilities: [Option<f32>; 11],
+    cummulative_realization_weights: ([f32; 11], [f32; 11]),
 }
 
 impl Node {
@@ -30,6 +32,8 @@ impl Node {
             regret_sum: smallvec![0.0;size],
             strategy: smallvec![0.0;size],
             strategy_sum: smallvec![0.0;size],
+            estimated_utilities: [Option::None; 11],
+            cummulative_realization_weights: ([0.0; 11], [0.0; 11]),
             pruned: None,
         }
     }
@@ -94,22 +98,39 @@ impl Node {
 }
 
 #[derive(Debug)]
-pub struct Context {
-    pub nodes: FxHashMap<InfoSet, Node>,
-    pruned_nodes: FxHashMap<GameState, f32>,
-    terminal_nodes: HashSet<InfoSet>,
-    terminal_histories: usize,
-    pruned_count: usize,
-    cached_transitions: FxHashMap<(GameState, usize), (CompleteGameState, bool)>,
+pub enum BoardEvaluation {
+    // Just traverse the full tree bro
+    FullTreeTraversal,
+    // After a certain depth, simulate random games
+    MonteCarlo { iterations: usize, max_depth: usize },
 }
 
-impl Context {
-    pub fn new() -> Self {
+#[derive(Debug)]
+pub struct TrainingOptions {
+    // None means pruning is disabled
+    pub pruning_threshold: Option<f32>,
+    pub board_evaluation: BoardEvaluation,
+}
+
+#[derive(Debug)]
+pub struct Context<R: RngCore + Rng> {
+    pub training_options: TrainingOptions,
+    pub nodes: FxHashMap<InfoSet, Node>,
+    progress_bar: ProgressBar,
+    pruned_nodes: FxHashMap<GameState, f32>,
+    terminal_histories: usize,
+    pruned_count: usize,
+    pub rng: R,
+}
+
+impl<R: RngCore> Context<R> {
+    pub fn new(training_options: TrainingOptions, rng: R, progress_bar: ProgressBar) -> Self {
         Context {
+            training_options,
+            rng,
+            progress_bar,
             nodes: FxHashMap::default(),
             pruned_nodes: FxHashMap::default(),
-            cached_transitions: FxHashMap::default(),
-            terminal_nodes: HashSet::new(),
             terminal_histories: 0,
             pruned_count: 0,
         }
@@ -126,17 +147,18 @@ fn is_essentially_zero(f: f32) -> bool {
     f.abs() < 0.000000003
 }
 
-fn cfr(context: &mut Context, state: &CompleteGameState, realization_weights: (f32, f32)) -> f32 {
-    let enable_pruning = true;
-
+fn cfr<R: RngCore>(
+    context: &mut Context<R>,
+    state: &CompleteGameState,
+    realization_weights: (f32, f32),
+    depth: usize,
+) -> f32 {
     if is_essentially_zero(realization_weights.0) && is_essentially_zero(realization_weights.1) {
         return 0.0;
     }
 
     match state {
         CompleteGameState::Finished(Score(score)) => {
-            // println!("{}", context.terminal_nodes);
-            // println!("Finished a game!");
             context.terminal_histories += 1;
             if *score > 0 {
                 1.0
@@ -147,13 +169,45 @@ fn cfr(context: &mut Context, state: &CompleteGameState, realization_weights: (f
             }
         }
         CompleteGameState::Unfinished(unfinished_state) => {
-            let node_count = context.nodes.len();
-            if node_count % 100000 == 0 {
-                println!("{}", node_count);
-            };
             let info_set = unfinished_state.conceal();
-
             let mut node = context.take_node(&info_set);
+
+            let should_estimate = match context.training_options.board_evaluation {
+                BoardEvaluation::MonteCarlo {
+                    iterations,
+                    max_depth,
+                } if depth > max_depth => Some(iterations),
+                _ => None,
+            };
+
+            let overseer = unfinished_state.overseer as usize;
+            node.cummulative_realization_weights.0[overseer] += realization_weights.0;
+            node.cummulative_realization_weights.1[overseer] += realization_weights.1;
+
+            match should_estimate {
+                Some(iterations) => {
+                    let utility = if let Some(estimated) = node.estimated_utilities[overseer] {
+                        estimated
+                    } else {
+                        context
+                            .progress_bar
+                            .set_message(format!("{:?}", context.terminal_histories));
+
+                        let utility =
+                            estimate_utility(unfinished_state, &mut context.rng, iterations);
+
+                        node.estimated_utilities[overseer] = Some(utility);
+
+                        utility
+                    };
+
+                    context.terminal_histories += 1;
+                    context.nodes.insert(info_set, node);
+
+                    return utility;
+                }
+                _ => (),
+            }
 
             match context.pruned_nodes.get(unfinished_state) {
                 Some(utility) => {
@@ -170,18 +224,8 @@ fn cfr(context: &mut Context, state: &CompleteGameState, realization_weights: (f
                         smallvec![0.0;node.size()];
 
                     for (index, action) in node.actions.iter().enumerate() {
-                        // println!("State: {:?}", unfinished_state);
-                        // println!("Action: {:?}", action);
-                        // let (new_state, flipped): (CompleteGameState, bool) = context
-                        //     .cached_transitions
-                        //     .remove(&(unfinished_state.clone(), index))
-                        //     .unwrap_or_else(|| unfinished_state.apply_transition(*action).unwrap());
                         let (new_state, flipped): (CompleteGameState, bool) =
                             unfinished_state.apply_transition(*action).unwrap();
-
-                        // if new_state.is_finished() {
-                        //     context.terminal_nodes.insert(info_set.clone());
-                        // }
 
                         let updated_weights = conditional_swap(
                             (
@@ -191,15 +235,18 @@ fn cfr(context: &mut Context, state: &CompleteGameState, realization_weights: (f
                             flipped,
                         );
 
-                        let utility = cfr(context, &new_state, updated_weights);
+                        let depth = match &new_state {
+                            CompleteGameState::Unfinished(state) if state.phase == Phase::Main1 => {
+                                depth + 1
+                            }
+                            _ => depth,
+                        };
+
+                        let utility = cfr(context, &new_state, updated_weights, depth);
                         let utility = if flipped { -utility } else { utility };
 
                         individual_utility[index] = utility;
                         total_utility += strategy[index] * utility;
-
-                        // context
-                        //     .cached_transitions
-                        //     .insert((unfinished_state.clone(), index), (new_state, flipped));
                     }
 
                     for index in 0..individual_utility.len() {
@@ -207,20 +254,15 @@ fn cfr(context: &mut Context, state: &CompleteGameState, realization_weights: (f
                         node.regret_sum[index] += realization_weights.1 * regret;
                     }
 
-                    if enable_pruning {
+                    if let Some(pruning_threshold) = context.training_options.pruning_threshold {
                         let mut should_prune = true;
                         let size = individual_utility.len();
-                        let pruning_threshold = 0.0001;
                         for i in 0..size {
                             if i == size - 1 {
                                 if 1.0 - individual_utility[i].abs() > pruning_threshold {
                                     should_prune = false;
                                     break;
                                 }
-                                // else {
-                                //      println!("Prunning node with individual utilities {:?} and total utility {}", individual_utility, total_utility);
-                                //      println!("{:?}", unfinished_state);
-                                // }
                             } else if (individual_utility[i + 1] - individual_utility[i]).abs()
                                 > pruning_threshold
                             {
@@ -246,45 +288,37 @@ fn cfr(context: &mut Context, state: &CompleteGameState, realization_weights: (f
     }
 }
 
-pub fn train(iterations: usize) -> (f32, Context) {
-    // let new_game2 = new_game.clone();
-    // let new_game3 = new_game.clone();
-    // let initial_state = CompleteGameState::Unfinished(new_game);
-    // let initial_state = new_game;
-    let mut context = Context::new();
+pub fn train<R: RngCore>(
+    training_options: TrainingOptions,
+    iterations: usize,
+    rng: R,
+) -> (f32, Context<R>) {
+    let progress_bar = ProgressBar::new(iterations as u64);
+    let mut context = Context::new(training_options, rng, progress_bar);
     let mut total = 0.0;
+    context.progress_bar.set_style(
+        ProgressStyle::with_template(
+            "[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} {msg}",
+        )
+        .unwrap(),
+    );
+    context.progress_bar.tick();
 
-    for i in 0..iterations {
+    for _ in 0..iterations {
         let initial_state = GameState::new().switch_to(crate::echo::Phase::Main1);
-        println!("Iteration {}", i);
-        let utility = cfr(&mut context, &initial_state, (1.0, 1.0));
+        let utility = cfr(&mut context, &initial_state, (1.0, 1.0), 0);
         total += utility;
+        context.progress_bar.inc(1);
         // println!("Utility {}", utility);
     }
 
+    context.progress_bar.finish();
+
     println!("Initial state {:?}", GameState::new());
     println!("Node count: {}", context.nodes.len());
-    println!("Terminal nodes: {}", context.terminal_nodes.len());
     println!("Terminal histories: {}", context.terminal_histories);
     println!("Pruned hashmap size: {}", context.pruned_nodes.len());
     println!("Pruned count: {}", context.pruned_count);
-
-    // println!("First node:");
-    // let first_node = &context.nodes[&new_game2.to_game_state().unwrap().conceal()];
-    // let best = first_node.best_action();
-    // first_node.print_actions();
-    // println!("Second node:");
-    // let second_node = &context.nodes[&new_game3
-    //     .to_game_state()
-    //     .unwrap()
-    //     .apply_transition(best)
-    //     .unwrap()
-    //     .0
-    //     .to_game_state()
-    //     .unwrap()
-    //     .conceal()];
-    // second_node.print_actions();
-    // println!("Best action {:?}", first_node.best_action());
 
     (total / iterations as f32, context)
 }
