@@ -76,15 +76,15 @@ impl Node {
         self.actions[index]
     }
 
-    pub fn print_actions(&self) {
+    pub fn print_average_strategy(&self) {
         let average = self.get_average_strategy();
-        // let average = &self.strategy;
+
         for i in 0..self.size() {
             if average[i].abs() < 0.01 {
                 continue;
             }
 
-            println!("Move: {:?}, probabilty: {:?}", self.actions[i], average[i]);
+            println!("Move: {}, probabilty: {}%", self.actions[i], (100.0 *average[i]).round());
         }
     }
 
@@ -110,6 +110,8 @@ pub struct TrainingOptions {
     // None means pruning is disabled
     pub pruning_threshold: Option<f32>,
     pub board_evaluation: BoardEvaluation,
+    pub starting_infoset: InfoSet,
+    // pub overseer_weights: [f32; 11]
 }
 
 #[derive(Debug)]
@@ -140,6 +142,19 @@ impl<R: RngCore> Context<R> {
         self.nodes
             .remove(info_set)
             .unwrap_or_else(|| Node::new(info_set.available_actions()))
+    }
+
+    pub fn make_choice(&mut self, info_set: &InfoSet) -> Option<PhaseTransition> {
+        match self.nodes.get(info_set) {
+            None => None,
+            Some(node) => {
+                let average = node.get_average_strategy();
+                node.print_average_strategy();
+
+                let index = roulette(&average, &mut self.rng);
+                Some(node.actions[index])
+            }
+        }
     }
 }
 
@@ -296,6 +311,7 @@ pub fn train<R: RngCore>(
     let progress_bar = ProgressBar::new(iterations as u64);
     let mut context = Context::new(training_options, rng, progress_bar);
     let mut total = 0.0;
+
     context.progress_bar.set_style(
         ProgressStyle::with_template(
             "[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} {msg}",
@@ -305,8 +321,8 @@ pub fn train<R: RngCore>(
     context.progress_bar.tick();
 
     for _ in 0..iterations {
-        let initial_state = GameState::new().switch_to(crate::echo::Phase::Main1);
-        let utility = cfr(&mut context, &initial_state, (1.0, 1.0), 0);
+        let initial_state = GameState::from_info_set(&context.training_options.starting_infoset, &mut context.rng);
+        let utility = cfr(&mut context, &CompleteGameState::Unfinished(initial_state), (1.0, 1.0), 0);
         total += utility;
         context.progress_bar.inc(1);
         // println!("Utility {}", utility);

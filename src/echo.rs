@@ -4,9 +4,9 @@ use crate::helpers::VEC_SIZE;
 
 use super::helpers::Swap;
 use rand::prelude::SliceRandom;
-use rand::thread_rng;
-use smallvec::{smallvec, SmallVec};
-use std::fmt;
+use rand::{thread_rng, Rng};
+use smallvec::SmallVec;
+use std::fmt::{self, Display};
 use std::hash::Hash;
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
@@ -37,7 +37,7 @@ pub enum Creature {
 use Creature::*;
 
 impl Creature {
-    const CREATURES: [Creature; 11] = [
+    pub const CREATURES: [Creature; 11] = [
         Wall, Seer, Rogue, Bard, Diplomat, Ranger, Steward, Barbarian, Witch, Mercenary, Monarch,
     ];
     // Strength of given creature (top-left of the card)
@@ -58,6 +58,12 @@ impl Creature {
     }
 }
 
+impl Display for Creature {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub enum Edict {
     // Victory point edicts
@@ -69,8 +75,14 @@ pub enum Edict {
     Ambush,
 }
 
+impl Display for Edict {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 impl Edict {
-    const EDICTS: [Edict; 5] = [
+    pub const EDICTS: [Edict; 5] = [
         Edict::Sabotage,
         Edict::Gambit,
         Edict::Ambush,
@@ -82,7 +94,7 @@ impl Edict {
 use Battlefield::*;
 
 impl Battlefield {
-    const BATTLEFIELDS: [Battlefield; 6] = [Mountain, Glade, Urban, Night, LastStrand, Plains];
+    pub const BATTLEFIELDS: [Battlefield; 6] = [Mountain, Glade, Urban, Night, LastStrand, Plains];
 
     // Amount of points rewarded for winning a battle
     // in this location (top-left of card)
@@ -104,13 +116,22 @@ impl Battlefield {
     }
 }
 
+impl Display for Battlefield {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 // Different kind of lingering effects affecting a given player
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub enum PlayerStatusEffect {
+    // === Effects caused by battlefields:
     // The player gains 1 strength
     Mountain,
     // The player gains +2 points if they win this battle
     Glade,
+
+    // === Effects caused by creatures:
     // The player gets to play two creatures instead of one
     Seer,
     // The player gains 1 strength and gains
@@ -123,6 +144,23 @@ pub enum PlayerStatusEffect {
     Barbarian,
 }
 
+impl PlayerStatusEffect {
+    pub const PLAYER_STATUS_EFFECTS: [PlayerStatusEffect; 6] = [
+        PlayerStatusEffect::Mountain,
+        PlayerStatusEffect::Glade,
+        PlayerStatusEffect::Seer,
+        PlayerStatusEffect::Bard,
+        PlayerStatusEffect::Mercenary,
+        PlayerStatusEffect::Barbarian,
+    ];
+}
+
+impl Display for PlayerStatusEffect {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 // Lingering effects affecting both players
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub enum GlobalStatusEffect {
@@ -130,16 +168,16 @@ pub enum GlobalStatusEffect {
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
-struct Bitfield(u16);
+pub struct Bitfield(u16);
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
-pub struct CreatureSet(Bitfield);
+pub struct CreatureSet(pub Bitfield);
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
-pub struct EdictSet(Bitfield);
+pub struct EdictSet(pub Bitfield);
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
-pub struct PlayerStatusEffects(Bitfield);
+pub struct PlayerStatusEffects(pub Bitfield);
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
-pub struct GlobalStatusEffects(Bitfield);
+pub struct GlobalStatusEffects(pub Bitfield);
 
 impl Bitfield {
     pub fn new() -> Self {
@@ -170,6 +208,40 @@ impl Bitfield {
     pub fn clear(&mut self) {
         self.0 = 0;
     }
+
+    pub fn union(&self, other: &Self) -> Self {
+        Bitfield(self.0 | other.0)
+    }
+
+    pub fn invert(&self) -> Self {
+        Bitfield(!self.0)
+    }
+}
+
+impl CreatureSet {
+    pub fn all() -> Self {
+        let mut bitfield = Bitfield::new();
+        bitfield.fill();
+        CreatureSet(bitfield)
+    }
+
+    pub fn others(&self) -> Self {
+        CreatureSet(self.0.invert())
+    }
+}
+impl EdictSet {
+    pub fn all() -> Self {
+        let mut bitfield = Bitfield::new();
+        bitfield.fill();
+        EdictSet(bitfield)
+    }
+}
+impl PlayerStatusEffects {
+    pub fn all() -> Self {
+        let mut bitfield = Bitfield::new();
+        bitfield.fill();
+        PlayerStatusEffects(bitfield)
+    }
 }
 
 impl fmt::Debug for Bitfield {
@@ -187,9 +259,9 @@ impl Into<u64> for Bitfield {
 // State involving only one of the players
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub struct PlayerState {
-    creatures: CreatureSet,
-    edicts: EdictSet,
-    effects: PlayerStatusEffects,
+    pub creatures: CreatureSet,
+    pub edicts: EdictSet,
+    pub effects: PlayerStatusEffects,
 }
 
 impl PlayerState {
@@ -222,17 +294,26 @@ pub struct HiddenPlayerState {
     // the existence of the overseer - a card which neither player
     // has been given. This means a player doesn't know what the
     // "full set of creatures the opponent has been given" is.
-    edicts: EdictSet,
-    effects: PlayerStatusEffects,
+    pub edicts: EdictSet,
+    pub effects: PlayerStatusEffects,
+}
+
+impl HiddenPlayerState {
+    pub fn new() -> Self {
+        HiddenPlayerState {
+            edicts: EdictSet(Bitfield(63)),
+            effects: PlayerStatusEffects(Bitfield::new()),
+        }
+    }
 }
 
 // Choice made by one of the players in the main phase
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub struct MainPhaseChoice {
-    edict: Edict,
+    pub edict: Edict,
     // The player is only allowed to play two creatures
     // if the "seer" status effect is active
-    creatures: (Creature, Option<Creature>),
+    pub creatures: (Creature, Option<Creature>),
 }
 
 impl MainPhaseChoice {
@@ -328,6 +409,48 @@ pub enum PhaseTransition {
     Seer(Creature),
 }
 
+impl PhaseTransition {
+    pub fn to_seer(&self) -> Option<Creature> {
+        match self {
+            PhaseTransition::Seer(choice) => Some(*choice),
+            _ => None,
+        }
+    }
+    pub fn to_sabotage(&self) -> Option<Creature> {
+        match self {
+            PhaseTransition::Sabotage(choice) => Some(*choice),
+            _ => None,
+        }
+    }
+    pub fn to_main(&self) -> Option<MainPhaseChoice> {
+        match self {
+            PhaseTransition::Main(choice) => Some(*choice),
+            _ => None,
+        }
+    }
+}
+
+impl Display for PhaseTransition {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PhaseTransition::Sabotage(creature) => write!(f, "Sabotage target: {}", creature),
+            PhaseTransition::Seer(creature) => write!(f, "Seer choice: {}", creature),
+            PhaseTransition::Main(MainPhaseChoice { edict, creatures }) => match creatures.1 {
+                None => {
+                    write!(f, "Creature: {}. Edict: {}", creatures.0, edict)
+                }
+                Some(seer_creature) => {
+                    write!(
+                        f,
+                        "Creatures: {} & {}. Edict: {}",
+                        creatures.0, seer_creature, edict
+                    )
+                }
+            },
+        }
+    }
+}
+
 // Player 1 score - player 2 score
 // - Negative => player 2 won
 // - Positive => player 1 won
@@ -335,10 +458,40 @@ pub enum PhaseTransition {
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub struct Score(pub i8);
 
-// Stack of battlefields for a match.
-// The tail of the list represents the current battle.
-// Elements get popped as battles take place.
-type Battlefields = SmallVec<[Battlefield; 4]>;
+#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
+pub struct Battlefields {
+    pub all: [Battlefield; 4],
+    pub current: u8,
+}
+
+impl Battlefields {
+    pub fn new(all: [Battlefield; 4]) -> Self {
+        Battlefields { all, current: 0 }
+    }
+
+    pub fn is_last(&self) -> bool {
+        self.current == 3
+    }
+
+    pub fn next(&self) -> Option<Self> {
+        if self.is_last() {
+            None
+        } else {
+            Some(Battlefields {
+                all: self.all,
+                current: self.current + 1,
+            })
+        }
+    }
+
+    pub fn active(&self) -> &[Battlefield] {
+        &self.all[(self.current as usize)..]
+    }
+
+    pub fn current(&self) -> Battlefield {
+        self.all[self.current as usize]
+    }
+}
 
 // Context for resolving a battle, including data already present in GameState
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -665,107 +818,105 @@ impl FullBattleContext {
 
         let score = Score(game_state.score.0 + score_delta);
 
-        let mut battlefields = game_state.battlefields.clone();
-        battlefields.pop();
-
-        // Continue game
-        return if battlefields.len() > 0 {
-            let mut new_game_state = GameState {
-                battlefields,
-                score,
-                phase: Phase::Main1,
-                ..*game_state
-            };
-
-            new_game_state
-                .graveyard
-                .0
-                .add(self.current_creature() as u8);
-            new_game_state.graveyard.0.add(self.other_creature() as u8);
-
-            let p1 = &mut new_game_state.player_states.0;
-            let p2 = &mut new_game_state.player_states.1;
-
-            // Discard used creatures
-            p1.creatures.0.remove(self.current_creature() as u8);
-            p2.creatures.0.remove(self.other_creature() as u8);
-
-            // Discard used edicts
-            p1.edicts.0.remove(self.current_edict() as u8);
-            p2.edicts.0.remove(self.other_edict() as u8);
-
-            // Clear status effects
-            p1.effects.0.clear();
-            p2.effects.0.clear();
-            new_game_state.effects.0.clear();
-
-            // Resolve the Steward effect
-            if self.current_creature() == Creature::Steward && !self.creature_is_negated() {
-                p1.edicts.0.fill();
-            } else if self.other_creature() == Creature::Steward
-                && !self.flip().creature_is_negated()
+        return match game_state.battlefields.next() {
+            Some(battlefields) =>
+            // Continue game
             {
-                p2.edicts.0.fill();
-            }
+                let mut new_game_state = GameState {
+                    battlefields,
+                    score,
+                    phase: Phase::Main1,
+                    ..*game_state
+                };
 
-            // Set up global lingering effects
-            if self.battlefield == Battlefield::Night {
                 new_game_state
-                    .effects
+                    .graveyard
                     .0
-                    .add(GlobalStatusEffect::Night as u8);
+                    .add(self.current_creature() as u8);
+                new_game_state.graveyard.0.add(self.other_creature() as u8);
+
+                let p1 = &mut new_game_state.player_states.0;
+                let p2 = &mut new_game_state.player_states.1;
+
+                // Discard used creatures
+                p1.creatures.0.remove(self.current_creature() as u8);
+                p2.creatures.0.remove(self.other_creature() as u8);
+
+                // Discard used edicts
+                p1.edicts.0.remove(self.current_edict() as u8);
+                p2.edicts.0.remove(self.other_edict() as u8);
+
+                // Clear status effects
+                p1.effects.0.clear();
+                p2.effects.0.clear();
+                new_game_state.effects.0.clear();
+
+                // Resolve the Steward effect
+                if self.current_creature() == Creature::Steward && !self.creature_is_negated() {
+                    p1.edicts.0.fill();
+                } else if self.other_creature() == Creature::Steward
+                    && !self.flip().creature_is_negated()
+                {
+                    p2.edicts.0.fill();
+                }
+
+                // Set up global lingering effects
+                if self.battlefield == Battlefield::Night {
+                    new_game_state
+                        .effects
+                        .0
+                        .add(GlobalStatusEffect::Night as u8);
+                }
+
+                // first is winner, second is loser
+                let player_by_status = match battle_result {
+                    BattleResult::Won => Some((p1, p2)),
+                    BattleResult::Lost => Some((p2, p1)),
+                    BattleResult::Tied => None,
+                };
+
+                if let Some((winner, loser)) = player_by_status {
+                    // Set up battlefield lingering effects
+                    // - Glade:
+                    if self.battlefield == Battlefield::Glade {
+                        winner.effects.0.add(PlayerStatusEffect::Glade as u8);
+                    }
+                    // - Mountain
+                    if self.battlefield == Battlefield::Mountain {
+                        winner.effects.0.add(PlayerStatusEffect::Mountain as u8);
+                    }
+
+                    // Set up creature lingering effects
+                    // - Barbarian
+                    // if this card has already been played there's no point
+                    // in adding the status effect anymore
+                    if !new_game_state.graveyard.0.has(Creature::Barbarian as u8) {
+                        loser.effects.0.add(PlayerStatusEffect::Barbarian as u8)
+                    }
+                }
+
+                let p1 = &mut new_game_state.player_states.0;
+                let p2 = &mut new_game_state.player_states.1;
+
+                let creatures = [
+                    (Creature::Mercenary, PlayerStatusEffect::Mercenary),
+                    (Creature::Seer, PlayerStatusEffect::Seer),
+                    (Creature::Bard, PlayerStatusEffect::Bard),
+                ];
+
+                // - Mercenary
+                for (creature, effect) in creatures {
+                    if self.active_creature(creature) {
+                        p1.effects.0.add(effect as u8)
+                    } else if self.flip().active_creature(creature) {
+                        p2.effects.0.add(effect as u8)
+                    }
+                }
+
+                CompleteGameState::Unfinished(new_game_state)
             }
-
-            // first is winner, second is loser
-            let player_by_status = match battle_result {
-                BattleResult::Won => Some((p1, p2)),
-                BattleResult::Lost => Some((p2, p1)),
-                BattleResult::Tied => None,
-            };
-
-            if let Some((winner, loser)) = player_by_status {
-                // Set up battlefield lingering effects
-                // - Glade:
-                if self.battlefield == Battlefield::Glade {
-                    winner.effects.0.add(PlayerStatusEffect::Glade as u8);
-                }
-                // - Mountain
-                if self.battlefield == Battlefield::Mountain {
-                    winner.effects.0.add(PlayerStatusEffect::Mountain as u8);
-                }
-
-                // Set up creature lingering effects
-                // - Barbarian
-                // if this card has already been played there's no point
-                // in adding the status effect anymore
-                if !new_game_state.graveyard.0.has(Creature::Barbarian as u8) {
-                    loser.effects.0.add(PlayerStatusEffect::Barbarian as u8)
-                }
-            }
-
-            let p1 = &mut new_game_state.player_states.0;
-            let p2 = &mut new_game_state.player_states.1;
-
-            let creatures = [
-                (Creature::Mercenary, PlayerStatusEffect::Mercenary),
-                (Creature::Seer, PlayerStatusEffect::Seer),
-                (Creature::Bard, PlayerStatusEffect::Bard),
-            ];
-
-            // - Mercenary
-            for (creature, effect) in creatures {
-                if self.active_creature(creature) {
-                    p1.effects.0.add(effect as u8)
-                } else if self.flip().active_creature(creature) {
-                    p2.effects.0.add(effect as u8)
-                }
-            }
-
-            CompleteGameState::Unfinished(new_game_state)
-        }
-        // Report final results
-        else {
-            CompleteGameState::Finished(score)
+            // Report final results
+            None => CompleteGameState::Finished(score),
         };
     }
 }
@@ -812,8 +963,8 @@ impl GameState {
         // battlefields.pop();
         // battlefields.pop();
         // battlefields.pop();
-        let battlefields = smallvec![
-            // Battlefield::Night,
+        let battlefields = [
+            Battlefield::Night,
             Battlefield::Urban,
             Battlefield::Mountain,
             Battlefield::LastStrand,
@@ -846,12 +997,52 @@ impl GameState {
             graveyard: CreatureSet(Bitfield::new()),
             overseer,
             effects: GlobalStatusEffects(Bitfield::new()),
-            battlefields,
+            battlefields: Battlefields::new(battlefields),
             phase: Phase::Main1,
         }
         .flip_to(Phase::Main1)
         .to_game_state()
         .unwrap()
+    }
+
+    pub fn from_info_set<R: Rng>(info_set: &InfoSet, rng: &mut R) -> Self {
+        let mut p2_cards = Vec::new();
+
+        for creature in Creature::CREATURES {
+            if info_set.graveyard.0.has(creature as u8)
+                || info_set.player_states.0.creatures.0.has(creature as u8)
+            {
+                continue;
+            }
+
+            p2_cards.push(creature);
+        }
+
+        p2_cards.shuffle(rng);
+
+        let overseer = p2_cards.pop().unwrap();
+        let mut p2_hand = CreatureSet(Bitfield::new());
+
+        for creature in p2_cards {
+            p2_hand.0.add(creature as u8);
+        }
+
+        GameState {
+            score: info_set.score,
+            player_states: (
+                info_set.player_states.0,
+                PlayerState {
+                    edicts: info_set.player_states.1.edicts,
+                    effects: info_set.player_states.1.effects,
+                    creatures: p2_hand,
+                },
+            ),
+            graveyard: info_set.graveyard,
+            overseer,
+            effects: info_set.effects,
+            battlefields: info_set.battlefields.clone(),
+            phase: Phase::Main1,
+        }
     }
 
     // Return only the infromation the current player should have acceess to
@@ -869,7 +1060,7 @@ impl GameState {
     pub fn max_score(&self) -> u8 {
         let mut total = 0;
 
-        for battlefield in &self.battlefields {
+        for battlefield in self.battlefields.active() {
             total += battlefield.reward();
         }
 
@@ -904,7 +1095,7 @@ impl GameState {
         let context = FullBattleContext {
             main_choices,
             sabotage_choices,
-            battlefield: *self.battlefields.last().unwrap(),
+            battlefield: self.battlefields.current(),
             effects: self.effects,
             player_states: self.player_states,
         };
@@ -1045,19 +1236,19 @@ impl GameState {
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub struct InfoSet {
     // The player only has full information about themselves!
-    player_states: (PlayerState, HiddenPlayerState),
+    pub player_states: (PlayerState, HiddenPlayerState),
 
     // The next "decision" one of the players has to take
     // the player states are always arranged in such a way
     // to ensure the first player is the one taking the current decision.
-    phase: HiddenPhase,
+    pub phase: HiddenPhase,
 
     // The remaining fields have the same meaning
     // as in the fully determined game state
-    score: Score,
-    graveyard: CreatureSet,
-    effects: GlobalStatusEffects,
-    battlefields: Battlefields,
+    pub score: Score,
+    pub graveyard: CreatureSet,
+    pub effects: GlobalStatusEffects,
+    pub battlefields: Battlefields,
 }
 
 impl InfoSet {
