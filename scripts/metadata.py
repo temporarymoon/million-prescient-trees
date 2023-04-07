@@ -75,3 +75,7 @@ print(f"Unfixed: {total_unfixed}. Fixed: {total_fixed}")
 infoset_byte_size = 56
 print(f"{infoset_byte_size * total_fixed / 1024 / 1024 / 1024} gb required to store all nodes")
 print(f"{infoset_byte_size * total_fixed / 1024 / 1024} mb required to store all nodes")
+
+tree_size = 25**2 * 16**2 * 9**2 * 4**2 * 11 *2
+print(tree_size)
+print(f"{tree_size * 4 / 1024 / 1024 / 1024} gb required to store all nodes")
