@@ -1,6 +1,6 @@
 {
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/release-21.11";
+    nixpkgs.url = "github:nixos/nixpkgs/release-22.11";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
@@ -18,6 +18,12 @@
           packages = {
             pythonEnv = pkgs.python3.withPackages pythonDeps;
           };
-          devShell = packages.pythonEnv.env;
+          devShell = pkgs.mkShell {
+            nativeBuildInputs = with pkgs; [
+              packages.pythonEnv
+              rustup
+              cargo
+            ];
+          };
         });
 }

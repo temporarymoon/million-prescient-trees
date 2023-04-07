@@ -8,7 +8,7 @@ use smallvec::{smallvec, SmallVec};
 
 use crate::{
     echo::{CompleteGameState, GameState, InfoSet, Phase, PhaseTransition, Score},
-    helpers::{conditional_swap, normalize_vec, roulette, VEC_SIZE},
+    helpers::{normalize_vec, roulette, VEC_SIZE, is_essentially_zero, swap::conditional_swap},
     montecarlo::estimate_utility,
 };
 
@@ -20,7 +20,6 @@ pub struct Node {
     actions: SmallVec<[PhaseTransition; VEC_SIZE]>,
     pruned: Option<f32>,
     estimated_utilities: [Option<f32>; 11],
-    cummulative_realization_weights: ([f32; 11], [f32; 11]),
 }
 
 impl Node {
@@ -33,7 +32,6 @@ impl Node {
             strategy: smallvec![0.0;size],
             strategy_sum: smallvec![0.0;size],
             estimated_utilities: [Option::None; 11],
-            cummulative_realization_weights: ([0.0; 11], [0.0; 11]),
             pruned: None,
         }
     }
@@ -70,7 +68,7 @@ impl Node {
             .get_average_strategy()
             .iter()
             .enumerate()
-            .max_by(|a, b| a.1.total_cmp(b.1))
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
             .unwrap()
             .0;
         self.actions[index]
@@ -158,9 +156,6 @@ impl<R: RngCore> Context<R> {
     }
 }
 
-fn is_essentially_zero(f: f32) -> bool {
-    f.abs() < 0.000000003
-}
 
 fn cfr<R: RngCore>(
     context: &mut Context<R>,
@@ -196,8 +191,6 @@ fn cfr<R: RngCore>(
             };
 
             let overseer = unfinished_state.overseer as usize;
-            node.cummulative_realization_weights.0[overseer] += realization_weights.0;
-            node.cummulative_realization_weights.1[overseer] += realization_weights.1;
 
             match should_estimate {
                 Some(iterations) => {

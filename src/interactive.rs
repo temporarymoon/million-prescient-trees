@@ -1,11 +1,11 @@
 #![allow(dead_code)]
 use crate::{
     echo::{
-        Battlefield, Battlefields, Bitfield, Creature, CreatureSet, Edict, EdictSet,
-        GlobalStatusEffect, GlobalStatusEffects, HiddenPhase, HiddenPlayerState, InfoSet,
-        MainPhaseChoice, PhaseTransition, PlayerState, PlayerStatusEffect, PlayerStatusEffects,
-        Score,
+        Battlefields, Bitfield, CreatureSet, EdictSet, GlobalStatusEffects,
+        HiddenPhase, HiddenPlayerState, InfoSet, MainPhaseChoice, PhaseTransition, PlayerState,
+        PlayerStatusEffects, Score,
     },
+    game::types::{Battlefield, Creature, Edict, PlayerStatusEffect, GlobalStatusEffect},
     train::{train, utility_to_percentage, Context, TrainingOptions},
 };
 use dialoguer::{Confirm, Input, MultiSelect, Select};

@@ -1,3 +1,5 @@
+#![feature(allocator_api)]
+#![feature(iter_collect_into)]
 use std::mem::size_of;
 
 use echo::InfoSet;
@@ -5,18 +7,26 @@ use interactive::{get_initial_infoset, play_game};
 use rand::thread_rng;
 use smallvec::SmallVec;
 
-use crate::echo::Battlefield;
+use crate::{cfr::decision::DecisionNode, game::types::Battlefield};
 
+mod cfr;
 mod echo;
+mod game;
 mod helpers;
 mod interactive;
 mod montecarlo;
 mod train;
 
 fn main() {
-    println!("Size {}", size_of::<InfoSet>());
-    println!("Size 2 {}", size_of::<SmallVec<[Battlefield; 4]>>());
-    println!("Size 2 {}", size_of::<[Battlefield; 4]>());
+    println!("Size of node {}", size_of::<cfr::decision::Node>());
+    println!("Size of decision node {}", size_of::<DecisionNode>());
+    println!("Size of infoset{}", size_of::<InfoSet>());
+
+    println!(
+        "Battlefields size {}",
+        size_of::<SmallVec<[Battlefield; 4]>>()
+    );
+    println!("battlefields size 2 {}", size_of::<[Battlefield; 4]>());
 
     let rng = &mut thread_rng();
     // let start = Instant::now();main

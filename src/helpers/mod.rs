@@ -1,27 +1,13 @@
 use rand::Rng;
-use smallvec::SmallVec;
+
+pub mod swap;
+pub mod ranged;
 
 pub const VEC_SIZE: usize = 4;
 
-pub trait Swap {
-    fn swap(self) -> Self;
-}
-
-impl<T> Swap for (T, T) {
-    fn swap(self) -> Self {
-        (self.1, self.0)
-    }
-}
-
-pub fn conditional_swap<T>(pair: (T, T), should_swap: bool) -> (T, T) {
-    if should_swap {
-        pair.swap()
-    } else {
-        pair
-    }
-}
-
-pub fn normalize_vec(vec: &mut SmallVec<[f32; VEC_SIZE]>) {
+/// Normalize a vector. If all the values are zero,
+/// all the entries will be set to 1/size.
+pub fn normalize_vec(vec: &mut [f32]) {
     let mut sum = 0.0;
     let size = vec.len();
 
@@ -33,12 +19,14 @@ pub fn normalize_vec(vec: &mut SmallVec<[f32; VEC_SIZE]>) {
         if sum > 0.0 {
             *value /= sum;
         } else {
+            // TODO: maybe extract this in the outer scope?
+            // I doubt this really impact performance.
             *value = 1.0 / (size as f32);
         }
     }
 }
 
-// Pick a random number using a probability distribution vector thingy
+/// Pick a random number using a probability distribution.
 pub fn roulette<R>(probabilities: &[f32], rng: &mut R) -> usize
 where
     R: Rng,
@@ -55,5 +43,13 @@ where
         total += *length;
     }
 
-    panic!("Value {:?} fit nowhere", num)
+    panic!(
+        "Degenerate probability distribution {:?} — value {:?} does not fit anywhere.",
+        probabilities, num
+    )
+}
+
+/// Returns true if the value is very close to 0.
+pub fn is_essentially_zero(f: f32) -> bool {
+    f.abs() < 0.0000003
 }
