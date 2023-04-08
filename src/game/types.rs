@@ -91,6 +91,8 @@ pub enum Battlefield {
 
 use Battlefield::*;
 
+use crate::helpers::bitfield::Bitfield;
+
 impl Battlefield {
     pub const BATTLEFIELDS: [Battlefield; 6] = [Mountain, Glade, Urban, Night, LastStrand, Plains];
 
@@ -164,5 +166,61 @@ impl Display for PlayerStatusEffect {
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub enum GlobalStatusEffect {
     Night,
+}
+// }}}
+// {{{ Bitfields
+#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
+pub struct CreatureSet(pub Bitfield);
+#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
+pub struct EdictSet(pub Bitfield);
+#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
+pub struct PlayerStatusEffects(pub Bitfield);
+#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
+pub struct GlobalStatusEffects(pub Bitfield);
+
+impl CreatureSet {
+    pub fn all() -> Self {
+        CreatureSet(Bitfield::all())
+    }
+
+    pub fn others(&self) -> Self {
+        CreatureSet(self.0.invert())
+    }
+
+    pub fn has(&self, creature: Creature) -> bool {
+        self.0.has(creature as u8)
+    }
+}
+
+impl EdictSet {
+    pub fn all() -> Self {
+        let mut bitfield = Bitfield::new();
+        bitfield.fill();
+        EdictSet(bitfield)
+    }
+
+    pub fn has(&self, edict: Edict) -> bool {
+        self.0.has(edict as u8)
+    }
+}
+
+impl PlayerStatusEffects {
+    pub fn new() -> Self {
+        PlayerStatusEffects(Bitfield::new())
+    }
+
+    pub fn all() -> Self {
+        PlayerStatusEffects(Bitfield::all())
+    }
+
+    pub fn has(&self, effect: PlayerStatusEffect) -> bool {
+        self.0.has(effect as u8)
+    }
+}
+// }}}
+// {{{ Players
+pub enum Player {
+    Me, // Current player
+    You, // Opponent
 }
 // }}}

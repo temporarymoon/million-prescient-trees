@@ -1,12 +1,15 @@
-#![allow(dead_code)]
-
-use crate::game::types::{EdictSet, CreatureSet, PlayerStatusEffects};
+use crate::game::types::{CreatureSet, EdictSet, PlayerStatusEffects};
 use crate::helpers::swap::Swap;
-use rand::prelude::SliceRandom;
-use rand::{thread_rng, Rng};
+use std::alloc::Allocator;
 use std::fmt::{self, Display};
 use std::hash::Hash;
 
+use super::types::{
+    Battlefield, Creature, Edict, GlobalStatusEffect, GlobalStatusEffects, Player,
+    PlayerStatusEffect,
+};
+
+// {{{ Player state
 // State involving only one of the players
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub struct PlayerState {
@@ -17,24 +20,15 @@ pub struct PlayerState {
 
 impl PlayerState {
     pub fn new(creatures: CreatureSet) -> Self {
-        let edicts = Bitfield(63);
-
         PlayerState {
             creatures,
-            edicts: EdictSet(edicts),
-            effects: PlayerStatusEffects(Bitfield::new()),
+            edicts: EdictSet::all(),
+            effects: PlayerStatusEffects::new(),
         }
     }
-
-    // Return only the infromation the current player should have acceess to
-    pub fn conceal(&self) -> HiddenPlayerState {
-        return HiddenPlayerState {
-            edicts: self.edicts,
-            effects: self.effects,
-        };
-    }
 }
-
+// }}}
+// {{{ Main phase choice
 // Choice made by one of the players in the main phase
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub struct MainPhaseChoice {
@@ -56,14 +50,16 @@ impl MainPhaseChoice {
         }
     }
 }
-
+// }}}
+// {{{ Final main phase choice
 // Similar to MainPhaseChoice but used after the seer phase gets resolved
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub struct FinalMainPhaseChoice {
     edict: Edict,
     creature: Creature,
 }
-
+// }}}
+// {{{ Phase
 // The number of main phases is always 2
 type MainPhaseChoices = (MainPhaseChoice, MainPhaseChoice);
 
@@ -93,22 +89,8 @@ pub enum Phase {
     // Holds the choices made in all previous phases
     Seer(MainPhaseChoices, SabotagePhaseChoices),
 }
-
-impl Phase {
-    // Return only the infromation the current player should have acceess to
-    pub fn conceal(&self) -> HiddenPhase {
-        match self {
-            Phase::Main1 | Phase::Main2(_) => HiddenPhase::Main,
-            Phase::SabotagePhase1(choices) | Phase::SabotagePhase2(choices, _) => {
-                HiddenPhase::SabotagePhase(choices.0, choices.1.edict)
-            }
-            Phase::Seer(main_choices, sabotage_choices) => {
-                HiddenPhase::Seer(*main_choices, *sabotage_choices)
-            }
-        }
-    }
-}
-
+// }}}
+// {{{ Phase transition
 // Transitions from a phase to another.
 // Not all (Phase, PhaseTransition) pairs are valid (obviously)
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
@@ -159,14 +141,16 @@ impl Display for PhaseTransition {
         }
     }
 }
-
+// }}}
+// {{{ Score
 // Player 1 score - player 2 score
 // - Negative => player 2 won
 // - Positive => player 1 won
 // - 0 => draw
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub struct Score(pub i8);
-
+// }}}
+// {{{ Battlefields
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub struct Battlefields {
     pub all: [Battlefield; 4],
@@ -201,7 +185,8 @@ impl Battlefields {
         self.all[self.current as usize]
     }
 }
-
+// }}}
+// {{{ Battle context & result
 // Context for resolving a battle, including data already present in GameState
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub struct FullBattleContext {
@@ -629,7 +614,8 @@ impl FullBattleContext {
         };
     }
 }
-
+// }}}
+// {{{ Game state
 // Fully determined game state
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub struct GameState {
@@ -651,134 +637,6 @@ pub struct GameState {
 }
 
 impl GameState {
-    pub fn new() -> Self {
-        let rng = &mut thread_rng();
-
-        // let mut cards = Vec::from(Creature::CREATURES);
-        // cards.shuffle(rng);
-        // cards = vec![
-        //     Rogue, Witch, Diplomat, Seer, Barbarian, Monarch, Ranger, Wall, Bard, Steward,
-        //     Mercenary,
-        // ];
-
-        use Creature::*;
-        let mut p2_card_pool = vec![Monarch, Ranger, Barbarian, Bard, Steward, Mercenary];
-
-        p2_card_pool.shuffle(rng);
-        let overseer = p2_card_pool.pop().unwrap();
-        // println!("Overseer: {:?}", overseer);
-
-        // let mut battlefields = Vec::from(Battlefield::BATTLEFIELDS);
-        // battlefields.shuffle(rng);
-        // let mut battlefields = SmallVec::from_vec(battlefields);
-        // battlefields.pop();
-        // battlefields.pop();
-        // battlefields.pop();
-        // battlefields.pop();
-        let battlefields = [
-            Battlefield::Night,
-            Battlefield::Urban,
-            Battlefield::Mountain,
-            Battlefield::LastStrand,
-        ];
-
-        // let cards_in_hands = 5;
-
-        let mut p1_cards = CreatureSet(Bitfield::new());
-        let mut p2_cards = CreatureSet(Bitfield::new());
-
-        for card in vec![Rogue, Witch, Diplomat, Seer, Wall] {
-            p1_cards.0.add(card as u8);
-        }
-
-        for card in p2_card_pool {
-            p2_cards.0.add(card as u8);
-        }
-
-        // for (index, creature) in cards.iter().enumerate() {
-        //     if index < cards_in_hands {
-        //         p1_cards.0.add(*creature as u8);
-        //     } else if index < cards_in_hands * 2 {
-        //         p2_cards.0.add(*creature as u8);
-        //     }
-        // }
-
-        GameState {
-            score: Score(0),
-            player_states: (PlayerState::new(p1_cards), PlayerState::new(p2_cards)),
-            graveyard: CreatureSet(Bitfield::new()),
-            overseer,
-            effects: GlobalStatusEffects(Bitfield::new()),
-            battlefields: Battlefields::new(battlefields),
-            phase: Phase::Main1,
-        }
-        .flip_to(Phase::Main1)
-        .to_game_state()
-        .unwrap()
-    }
-
-    pub fn from_info_set<R: Rng>(info_set: &InfoSet, rng: &mut R) -> Self {
-        let mut p2_cards = Vec::new();
-
-        for creature in Creature::CREATURES {
-            if info_set.graveyard.0.has(creature as u8)
-                || info_set.player_states.0.creatures.0.has(creature as u8)
-            {
-                continue;
-            }
-
-            p2_cards.push(creature);
-        }
-
-        p2_cards.shuffle(rng);
-
-        let overseer = p2_cards.pop().unwrap();
-        let mut p2_hand = CreatureSet(Bitfield::new());
-
-        for creature in p2_cards {
-            p2_hand.0.add(creature as u8);
-        }
-
-        GameState {
-            score: info_set.score,
-            player_states: (
-                info_set.player_states.0,
-                PlayerState {
-                    edicts: info_set.player_states.1.edicts,
-                    effects: info_set.player_states.1.effects,
-                    creatures: p2_hand,
-                },
-            ),
-            graveyard: info_set.graveyard,
-            overseer,
-            effects: info_set.effects,
-            battlefields: info_set.battlefields.clone(),
-            phase: Phase::Main1,
-        }
-    }
-
-    // Return only the infromation the current player should have acceess to
-    pub fn conceal(&self) -> InfoSet {
-        return InfoSet {
-            player_states: (self.player_states.0, self.player_states.1.conceal()),
-            score: self.score,
-            graveyard: self.graveyard,
-            effects: self.effects,
-            battlefields: self.battlefields.clone(),
-            phase: self.phase.conceal(),
-        };
-    }
-
-    pub fn max_score(&self) -> u8 {
-        let mut total = 0;
-
-        for battlefield in self.battlefields.active() {
-            total += battlefield.reward();
-        }
-
-        return total;
-    }
-
     // change the phase we are in
     pub fn switch_to(&self, phase: Phase) -> CompleteGameState {
         CompleteGameState::Unfinished(GameState {
@@ -812,31 +670,7 @@ impl GameState {
             player_states: self.player_states,
         };
 
-        let result = context.advance_game_state(self);
-        // let other = context
-        //     .flip()
-        //     .advance_game_state(&self.flip_to(Phase::Main1).to_game_state().unwrap());
-        //
-        // match (result, other) {
-        //     (CompleteGameState::Unfinished(state1), CompleteGameState::Unfinished(state2)) => {
-        //         if state1.switch_to(Phase::Main1) == state2.flip_to(Phase::Main1) {
-        //             CompleteGameState::Unfinished(state1)
-        //             // state2.flip_to(Phase::Main1)
-        //         } else {
-        //             panic!("Ended with different states {:?} {:?}", state1, state2)
-        //         }
-        //     }
-        //     (CompleteGameState::Finished(score1), CompleteGameState::Finished(score2)) => {
-        //         if score1.0 == -score2.0 {
-        //             CompleteGameState::Finished(score1)
-        //         } else {
-        //             panic!("Ended with different scopres {:?} {:?}", score1, score2)
-        //         }
-        //     }
-        //     (a, b) => panic!("Different states entirely {:?} {:?}", a, b),
-        // }
-
-        result
+        context.advance_game_state(self)
     }
 
     fn resolve_sabotage(
@@ -928,83 +762,109 @@ impl GameState {
             _ => None,
         }
     }
+
+    #[inline]
+    fn get_player_state(&self, player: Player) -> PlayerState {
+        match player {
+            Player::Me => self.player_states.0,
+            Player::You => self.player_states.1,
+        }
+    }
+
+    /// Prepares the overseer candiates for a decision node.
+    /// See the docs there for more details.
+    pub fn get_overseer_candiates(&self, player: Player) -> [Option<u8>; 11] {
+        let out: [Option<u8>; 11] = Default::default();
+        let state = self.get_player_state(player);
+
+        let index = 0;
+
+        for creature in Creature::CREATURES {
+            if state.creatures.has(creature) || self.graveyard.has(creature) {
+                continue;
+            }
+
+            out[creature as usize] = Some(index);
+            index += 1;
+        }
+
+        out
+    }
+
+    pub fn main_phase_choices<A: Allocator>(
+        &self,
+        player: Player,
+        out: &mut Vec<MainPhaseChoice, A>,
+    ) {
+        out.clear();
+
+        let state = self.get_player_state(player);
+        let seer_is_active = state.effects.has(PlayerStatusEffect::Seer);
+
+        for creature in Creature::CREATURES {
+            if !state.creatures.has(creature) {
+                continue;
+            }
+
+            for edict in Edict::EDICTS {
+                if !state.edicts.has(edict) {
+                    continue;
+                }
+
+                if seer_is_active {
+                    let creature_index = creature as usize;
+
+                    // Try to avoid duplicate pairs
+                    for extra_creature in &Creature::CREATURES[0..creature_index] {
+                        if !state.creatures.has(*extra_creature) {
+                            continue;
+                        }
+
+                        out.push(MainPhaseChoice {
+                            edict,
+                            creatures: (creature, Some(*extra_creature)),
+                        })
+                    }
+                } else {
+                    out.push(MainPhaseChoice {
+                        edict,
+                        creatures: (creature, None),
+                    })
+                }
+            }
+        }
+    }
+
+    // pub fn available_actions(&self, out: &mut Vec<PhaseTransition>) {
+    //     *out = vec![];
+    //
+    //     match self.phase {
+    //         HiddenPhase::SabotagePhase(_, _) => {
+    //             for creature in Creature::CREATURES {
+    //                 if self.graveyard.0.has(creature as u8) {
+    //                     continue;
+    //                 } else if self.player_states.0.creatures.0.has(creature as u8) {
+    //                     continue;
+    //                 }
+    //
+    //                 choices.push(PhaseTransition::Sabotage(creature))
+    //             }
+    //         }
+    //         HiddenPhase::Seer(main_choices, _) => {
+    //             let creatures = main_choices.0.creatures;
+    //             choices.push(PhaseTransition::Seer(creatures.0));
+    //             if let Some(secondary_pick) = creatures.1 {
+    //                 choices.push(PhaseTransition::Seer(secondary_pick))
+    //             } else {
+    //                 panic!("Invalid seer phase with single creature on the table.")
+    //             }
+    //         }
+    //     }
+    //     choices
+    // }
 }
-
-// This is essentially GameState \ InfoSet
-// #[derive(PartialEq, Eq, Hash, Clone, Debug)]
-// pub struct HiddenInfoSet {
-//     opponent_cards: CreatureSet,
-//     overseer: Creature,
-//     phase: Option<HiddenPhaseInfo>
-// }
-
-// impl InfoSet {
-//     pub fn available_actions(&self) -> SmallVec<[PhaseTransition; VEC_SIZE]> {
-//         let mut choices = SmallVec::new();
-//         match self.phase {
-//             HiddenPhase::Main => {
-//                 let effects = self.player_states.0.effects.0;
-//                 let seer_is_active = effects.has(PlayerStatusEffect::Seer as u8);
-//
-//                 for creature in Creature::CREATURES {
-//                     if !self.player_states.0.creatures.0.has(creature as u8) {
-//                         continue;
-//                     }
-//
-//                     for edict in Edict::EDICTS {
-//                         if !self.player_states.0.edicts.0.has(edict as u8) {
-//                             continue;
-//                         }
-//
-//                         if seer_is_active {
-//                             for extra_creature in Creature::CREATURES {
-//                                 if !self.player_states.0.creatures.0.has(extra_creature as u8) {
-//                                     continue;
-//                                 }
-//
-//                                 if creature == extra_creature {
-//                                     continue;
-//                                 }
-//
-//                                 choices.push(PhaseTransition::Main(MainPhaseChoice {
-//                                     edict,
-//                                     creatures: (creature, Some(extra_creature)),
-//                                 }))
-//                             }
-//                         } else {
-//                             choices.push(PhaseTransition::Main(MainPhaseChoice {
-//                                 edict,
-//                                 creatures: (creature, None),
-//                             }))
-//                         }
-//                     }
-//                 }
-//             }
-//             HiddenPhase::SabotagePhase(_, _) => {
-//                 for creature in Creature::CREATURES {
-//                     if self.graveyard.0.has(creature as u8) {
-//                         continue;
-//                     } else if self.player_states.0.creatures.0.has(creature as u8) {
-//                         continue;
-//                     }
-//
-//                     choices.push(PhaseTransition::Sabotage(creature))
-//                 }
-//             }
-//             HiddenPhase::Seer(main_choices, _) => {
-//                 let creatures = main_choices.0.creatures;
-//                 choices.push(PhaseTransition::Seer(creatures.0));
-//                 if let Some(secondary_pick) = creatures.1 {
-//                     choices.push(PhaseTransition::Seer(secondary_pick))
-//                 } else {
-//                     panic!("Invalid seer phase with single creature on the table.")
-//                 }
-//             }
-//         }
-//         choices
-//     }
-// }
-
+// }}}
+// {{{ Complete game state
 #[derive(PartialEq, Eq, Hash, Debug, Clone)]
 pub enum CompleteGameState {
     Finished(Score),
@@ -1025,3 +885,4 @@ impl CompleteGameState {
         }
     }
 }
+// }}}

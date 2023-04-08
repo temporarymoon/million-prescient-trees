@@ -98,18 +98,24 @@ impl<'a> DecisionNode<'a> {
     pub fn new(
         size: usize,
         allocator: &'a Bump,
-        next: Vec<Node<'a>, &'a Bump>,
+        branch_count: usize,
         hidden_info: bool,
         players_swapped: bool,
         overseer_indices: [Option<u8>; 11],
     ) -> Self {
+        let overseer_candiate_count = overseer_indices.iter().filter(|o| o.is_some()).count();
+        let branch_count = branch_count * overseer_candiate_count;
+
         let mut regret_sum = Vec::with_capacity_in(size, allocator);
         let mut strategy = Vec::with_capacity_in(size, allocator);
         let mut strategy_sum = Vec::with_capacity_in(size, allocator);
+        let mut next = Vec::with_capacity_in(branch_count, allocator);
 
         regret_sum.resize(size, 0.0);
         strategy.resize(size, 0.0);
         strategy_sum.resize(size, 0.0);
+        // TODO: see if there's a better way to do this
+        next.resize_with(branch_count, || Node::Empty);
 
         Self {
             regret_sum,
@@ -119,7 +125,7 @@ impl<'a> DecisionNode<'a> {
             hidden_info,
             overseer_indices,
             players_swapped,
-            overseer_candidate_count: overseer_indices.iter().filter(|o| o.is_some()).count() as u8,
+            overseer_candidate_count: overseer_candiate_count as u8,
         }
     }
 

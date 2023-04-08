@@ -1,5 +1,6 @@
 #![feature(allocator_api)]
 #![feature(iter_collect_into)]
+#![allow(dead_code)]
 use std::mem::size_of;
 
 use echo::InfoSet;
