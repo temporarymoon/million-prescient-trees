@@ -14,6 +14,7 @@ rayon = "1.7.0" # Multithreading
 rand = "0.8.5" # RNG
 dialoguer = "0.10.2" # Console stuff
 indicatif = "0.17.2" # Console stuff
+const_for = "0.1.2" # Conmpile time loops
 
 [profile.release]
 debug = true

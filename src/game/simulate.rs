@@ -774,10 +774,10 @@ impl GameState {
     /// Prepares the overseer candiates for a decision node.
     /// See the docs there for more details.
     pub fn get_overseer_candiates(&self, player: Player) -> [Option<u8>; 11] {
-        let out: [Option<u8>; 11] = Default::default();
+        let mut out: [Option<u8>; 11] = Default::default();
         let state = self.get_player_state(player);
 
-        let index = 0;
+        let mut index = 0;
 
         for creature in Creature::CREATURES {
             if state.creatures.has(creature) || self.graveyard.has(creature) {

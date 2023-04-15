@@ -2,7 +2,9 @@ pub trait Swap {
     fn swap(self) -> Self;
 }
 
-impl<T> Swap for (T, T) {
+pub type Pair<T> = (T, T);
+
+impl<T> Swap for Pair<T> {
     fn swap(self) -> Self {
         (self.1, self.0)
     }

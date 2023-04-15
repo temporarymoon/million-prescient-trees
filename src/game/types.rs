@@ -219,6 +219,7 @@ impl PlayerStatusEffects {
 }
 // }}}
 // {{{ Players
+#[derive(Debug)]
 pub enum Player {
     Me, // Current player
     You, // Opponent

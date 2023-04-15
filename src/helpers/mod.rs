@@ -3,6 +3,7 @@ use rand::Rng;
 pub mod swap;
 pub mod bitfield;
 pub mod ranged;
+pub mod subpair;
 
 pub const VEC_SIZE: usize = 4;
 
