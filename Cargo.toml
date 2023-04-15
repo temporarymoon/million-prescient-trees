@@ -8,13 +8,13 @@ edition = "2018"
 
 [dependencies]
 bumpalo = { version = "3.12.0", features=["allocator_api"] } # Arena allocator
-rustc-hash = "1.1.0" # Fast hashmap (will remove soon)
-smallvec = "1.10.0" # Vectors which start on the stack (will remove soon)
 rayon = "1.7.0" # Multithreading
 rand = "0.8.5" # RNG
-dialoguer = "0.10.2" # Console stuff
-indicatif = "0.17.2" # Console stuff
+dialoguer = "0.10.2" # Console dialogs
+indicatif = "0.17.2" # Console progress bars
 const_for = "0.1.2" # Conmpile time loops
+rustc-hash = "1.1.0" # Fast hashmap (will remove soon)
+smallvec = "1.10.0" # Vectors which start on the stack (will remove soon)
 
 [profile.release]
 debug = true

@@ -1,3 +1,5 @@
+use const_for::const_for;
+
 use super::swap::Pair;
 
 pub type Encoded = u8;
@@ -12,6 +14,7 @@ const fn reverse_sort_pair(p: Decoded) -> Decoded {
     }
 }
 
+// {{{ Encode
 /// Encodes two ints into a single int, with the assumption that
 /// encode(a, b) should be equal to encode(b, a)
 pub const fn encode_subpair(p: Decoded) -> Encoded {
@@ -20,21 +23,23 @@ pub const fn encode_subpair(p: Decoded) -> Encoded {
 
     return a * (a - 1) / 2 + b as Encoded;
 }
-
+// }}}
+// {{{ Generate lookup table
 const MAX_N: usize = 9;
 const MAX_PAIR: usize = MAX_N * (MAX_N - 1) / 2;
 const DECODE_LOOKUP_TABLE: [Decoded; MAX_PAIR] = {
     let mut result = [(0, 0); MAX_PAIR];
 
     const_for!(i in 0..MAX_N => {
-        const_for!(i in 0..i => {
+        const_for!(j in 0..i => {
             result[encode_subpair((i as u8, j as u8)) as usize] = (i as u8, j as u8);
         });
     });
 
     result
 };
-
+// }}}
+// {{{ Decode
 /// Decodes two ints encoded with the above function,
 /// where the two ints are smaller than some n.
 pub fn decode_subpair(x: Encoded) -> Decoded {
@@ -47,17 +52,30 @@ pub fn decode_subpair(x: Encoded) -> Decoded {
 
     DECODE_LOOKUP_TABLE[x as usize]
 }
-
+// }}}
+// {{{ Tests
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn encode_commutative() {
+        for i in 0..MAX_N {
+            for j in 0..i {
+                assert_eq!(
+                    encode_subpair((i as u8, j as u8)),
+                    encode_subpair((j as u8, i as u8))
+                );
+            }
+        }
+    }
 
     #[test]
     fn decode_encode_inverses() {
         for i in 0..MAX_N {
             for j in 0..i {
                 assert_eq!(
-                    (i as u8, j as u8),
+                    (i as Encoded, j as Encoded),
                     decode_subpair(encode_subpair((i as u8, j as u8)))
                 );
             }
@@ -65,11 +83,23 @@ mod tests {
     }
 
     #[test]
+    fn encode_decode_inverses() {
+        for ij in 0..MAX_PAIR {
+                assert_eq!(
+                    ij as Encoded,
+                    encode_subpair(decode_subpair(ij as Encoded))
+                );
+        }
+    }
+
+    // Mathematically speaking, the injectiviness is implied by the fact the functions
+    // are inverses of eachother, but we check anyways :)
+    #[test]
     fn decode_injective() {
         for ij in 0..MAX_PAIR {
             for kl in 0..MAX_PAIR {
                 if ij != kl {
-                    assert_ne!(decode_subpair(ij as u8), decode_subpair(kl as u8));
+                    assert_ne!(decode_subpair(ij as Encoded), decode_subpair(kl as Encoded));
                 }
             }
         }
@@ -94,16 +124,5 @@ mod tests {
             }
         }
     }
-
-    #[test]
-    fn encode_commutative() {
-        for i in 0..MAX_N {
-            for j in 0..i {
-                assert_eq!(
-                    encode_subpair((i as u8, j as u8)),
-                    encode_subpair((j as u8, i as u8))
-                );
-            }
-        }
-    }
 }
+// }}}
