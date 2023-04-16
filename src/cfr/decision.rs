@@ -91,7 +91,7 @@ impl<'a> DecisionVector<'a> {
     }
 
 
-    pub fn main_phase_index(
+    pub fn encode_main_phase_index(
         main: Creature,
         edict: Edict,
         extra_creature: Option<Creature>,
@@ -106,6 +106,14 @@ impl<'a> DecisionVector<'a> {
         let edict_index = edicts.count_from_end(edict);
 
         (creature_index as usize).mix_ranged(edict_index as usize, edicts.len() as usize)
+    }
+
+    pub fn decode_main_phase_index(
+        edicts: EdictSet,
+        graveyard: CreatureSet,
+        index: usize
+    ) -> (usize, Edict) {
+      todo!()
     }
 }
 // }}}
