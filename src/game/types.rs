@@ -180,11 +180,11 @@ pub struct GlobalStatusEffects(pub Bitfield);
 
 impl CreatureSet {
     pub fn all() -> Self {
-        CreatureSet(Bitfield::all())
+        CreatureSet(Bitfield::n_ones(11))
     }
 
     pub fn others(&self) -> Self {
-        CreatureSet(self.0.invert())
+        CreatureSet(self.0.invert_last_n(11))
     }
 
     pub fn has(&self, creature: Creature) -> bool {
@@ -198,11 +198,21 @@ impl CreatureSet {
 
 impl EdictSet {
     pub fn all() -> Self {
-        EdictSet(Bitfield::all())
+        EdictSet(Bitfield::n_ones(5))
     }
 
     pub fn has(&self, edict: Edict) -> bool {
         self.0.has(edict as u8)
+    }
+
+    pub fn count_from_end(&self, target: Edict) -> u8 {
+        self.0.count_from_end(target as u8)
+    }
+
+    pub fn len(&self) -> u8 {
+        let result = self.0.len();
+        assert!(result <= 11); // Sanity checks
+        result
     }
 }
 
@@ -212,7 +222,9 @@ impl PlayerStatusEffects {
     }
 
     pub fn all() -> Self {
-        PlayerStatusEffects(Bitfield::all())
+        PlayerStatusEffects(Bitfield::n_ones(
+            PlayerStatusEffect::PLAYER_STATUS_EFFECTS.len() as u8,
+        ))
     }
 
     pub fn has(&self, effect: PlayerStatusEffect) -> bool {

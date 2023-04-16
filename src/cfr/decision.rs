@@ -1,6 +1,9 @@
 #![allow(dead_code)]
 
-use crate::{helpers::ranged::MixRanged, game::types::Player};
+use crate::{
+    game::types::{CreatureSet, Edict, EdictSet, Player},
+    helpers::{ranged::MixRanged, subpair::encode_subpair},
+};
 use std::alloc::Allocator;
 
 use bumpalo::Bump;
@@ -86,6 +89,24 @@ impl<'a> DecisionVector<'a> {
 
         roulette(&average, rng)
     }
+
+
+    pub fn main_phase_index(
+        main: Creature,
+        edict: Edict,
+        extra_creature: Option<Creature>,
+        graveyard: CreatureSet,
+        edicts: EdictSet,
+    ) -> usize {
+        let mut creature_index = graveyard.others().count_from_end(main);
+        if let Some(extra_creature) = extra_creature {
+            let second_creature_index = graveyard.count_from_end(extra_creature);
+            creature_index = encode_subpair((creature_index, second_creature_index));
+        }
+        let edict_index = edicts.count_from_end(edict);
+
+        (creature_index as usize).mix_ranged(edict_index as usize, edicts.len() as usize)
+    }
 }
 // }}}
 // {{{ Decision matrix
@@ -107,15 +128,15 @@ impl<'a> DecisionMatrix<'a> {
 // {{{ Explored scope
 #[derive(Debug)]
 pub struct MainExtraInfo {
-  pub edict_counts: (u8, u8)
+    pub edict_counts: (u8, u8),
 }
 
 #[derive(Debug)]
 pub struct SabotageExtraInfo {
-/// The player about to enter a seer phase.
-    /// If neither players is entering one, 
+    /// The player about to enter a seer phase.
+    /// If neither players is entering one,
     /// the value of this can be whatever.
-  pub seer_player: Player
+    pub seer_player: Player,
 }
 
 #[derive(Debug)]
@@ -129,7 +150,7 @@ pub type CreatureIndex = usize;
 
 #[derive(Debug)]
 pub enum ExploredScopeHiddenInfo {
-    PreSabotage(CreatureIndex, CreatureIndex, ),
+    PreSabotage(CreatureIndex, CreatureIndex),
     PreSeer(CreatureIndex),
     PreMain,
 }
@@ -139,7 +160,6 @@ pub struct ExploredScope<'a> {
     pub kind: ExploredScopeKind,
     pub next: Vec<Scope<'a>, &'a Bump>,
 }
-
 
 impl<'a> ExploredScope<'a> {
     pub fn get_next(
