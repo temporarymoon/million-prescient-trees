@@ -46,7 +46,7 @@ impl Bitfield {
         ((self.0 >> (index as u16)) & 1) != 0
     }
 
-    /// Adds a bit to a bitfield. 
+    /// Adds a bit to a bitfield.
     /// Errors out if the bit is already there.
     ///
     /// # Examples
@@ -65,7 +65,7 @@ impl Bitfield {
         self.0 = self.0 | (1 << (index as u16))
     }
 
-    /// Removes a bit from a bitfield. 
+    /// Removes a bit from a bitfield.
     /// Errors out if the bit is already there.
     /// # Examples
     ///
@@ -81,7 +81,6 @@ impl Bitfield {
         }
         self.0 = self.0 ^ (1 << (index as u16))
     }
-
 
     /// Sets all bits to one.
     pub fn fill(&mut self) {
@@ -167,6 +166,22 @@ impl Bitfield {
     pub fn count_from_end(&self, target: u8) -> u8 {
         (0..target).filter(|x| self.has(*x)).count() as u8
     }
+
+    /// Returns the position (starting from the end) of the nth bit.
+    ///
+    /// # Exampels
+    ///
+    /// ```
+    /// lookup_from_end(ob010101, 2) // Some(4)
+    /// lookup_from_end(ob010101, 3) // Some(4)
+    /// ```
+    pub fn lookup_from_end(&self, index: u8) -> Option<u8> {
+        (0..16)
+            .enumerate()
+            .filter(|(_, x)| self.has(*x))
+            .nth(index as usize)
+            .map(|(i, _)| i as u8)
+    }
 }
 
 impl Default for Bitfield {
@@ -190,6 +205,8 @@ impl Into<u64> for Bitfield {
 // {{{ Tests
 #[cfg(test)]
 mod tests {
+    use std::i8::MAX;
+
     use super::*;
 
     #[test]
@@ -285,6 +302,45 @@ mod tests {
     fn len_examples() {
         assert_eq!(5, Bitfield::new(0b01011011).len());
         assert_eq!(16, Bitfield::all().len());
+    }
+
+    #[test]
+    fn lookup_from_end_examples() {
+        assert_eq!(Some(4), Bitfield::new(0b01011011).lookup_from_end(3));
+        assert_eq!(None, Bitfield::new(0b0101).lookup_from_end(2));
+    }
+
+    #[test]
+    fn lookup_from_end_smaller_than_count_always_just() {
+        for i in 0..u16::MAX {
+            for j in 0..16 {
+                let bitfield = Bitfield::new(i);
+
+                if bitfield.has(j) {
+                    for index in 0.. bitfield.count_from_end(j) {
+                    assert!(
+                        bitfield.lookup_from_end(index).is_some()
+                    )
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn lookup_from_end_count_from_end_inverses() {
+        for i in 0..u16::MAX {
+            for j in 0..16 {
+                let bitfield = Bitfield::new(i);
+
+                if bitfield.has(j) {
+                    assert_eq!(
+                        Some(j),
+                        bitfield.lookup_from_end(bitfield.count_from_end(j))
+                    )
+                }
+            }
+        }
     }
 
     #[test]

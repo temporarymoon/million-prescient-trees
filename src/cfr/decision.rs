@@ -90,7 +90,6 @@ impl<'a> DecisionVector<'a> {
         roulette(&average, rng)
     }
 
-
     pub fn encode_main_phase_index(
         main: Creature,
         edict: Edict,
@@ -108,12 +107,14 @@ impl<'a> DecisionVector<'a> {
         (creature_index as usize).mix_ranged(edict_index as usize, edicts.len() as usize)
     }
 
+    #[allow(unused_variables)]
     pub fn decode_main_phase_index(
         edicts: EdictSet,
         graveyard: CreatureSet,
-        index: usize
+        index: usize,
     ) -> (usize, Edict) {
-      todo!()
+        let (creature_index, edict_index) = index.unmix_ranged(edicts.len() as usize);
+        todo!()
     }
 }
 // }}}
