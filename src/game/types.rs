@@ -190,13 +190,15 @@ impl CreatureSet {
     pub fn has(&self, creature: Creature) -> bool {
         self.0.has(creature as u8)
     }
+
+    pub fn count_from_end(&self, target: Creature) -> u8 {
+        self.0.count_from_end(target as u8)
+    }
 }
 
 impl EdictSet {
     pub fn all() -> Self {
-        let mut bitfield = Bitfield::new();
-        bitfield.fill();
-        EdictSet(bitfield)
+        EdictSet(Bitfield::all())
     }
 
     pub fn has(&self, edict: Edict) -> bool {
@@ -206,7 +208,7 @@ impl EdictSet {
 
 impl PlayerStatusEffects {
     pub fn new() -> Self {
-        PlayerStatusEffects(Bitfield::new())
+        PlayerStatusEffects(Bitfield::default())
     }
 
     pub fn all() -> Self {
@@ -221,7 +223,7 @@ impl PlayerStatusEffects {
 // {{{ Players
 #[derive(Debug)]
 pub enum Player {
-    Me, // Current player
+    Me,  // Current player
     You, // Opponent
 }
 // }}}
