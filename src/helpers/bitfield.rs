@@ -169,18 +169,18 @@ impl Bitfield {
 
     /// Returns the position (starting from the end) of the nth bit.
     ///
-    /// # Exampels
+    /// # Examples
     ///
     /// ```
-    /// lookup_from_end(ob010101, 2) // Some(4)
-    /// lookup_from_end(ob010101, 3) // Some(4)
+    /// lookup_from_end(0b010101, 2) // Some(4)
+    /// lookup_from_end(0b010101, 3) // Some(4)
     /// ```
-    pub fn lookup_from_end(&self, index: u8) -> Option<u8> {
+    pub fn lookup_from_end(&self, index: u8) -> Option<usize> {
         (0..16)
             .enumerate()
             .filter(|(_, x)| self.has(*x))
             .nth(index as usize)
-            .map(|(i, _)| i as u8)
+            .map(|(i, _)| i)
     }
 }
 
@@ -205,8 +205,6 @@ impl Into<u64> for Bitfield {
 // {{{ Tests
 #[cfg(test)]
 mod tests {
-    use std::i8::MAX;
-
     use super::*;
 
     #[test]
@@ -317,10 +315,8 @@ mod tests {
                 let bitfield = Bitfield::new(i);
 
                 if bitfield.has(j) {
-                    for index in 0.. bitfield.count_from_end(j) {
-                    assert!(
-                        bitfield.lookup_from_end(index).is_some()
-                    )
+                    for index in 0..bitfield.count_from_end(j) {
+                        assert!(bitfield.lookup_from_end(index).is_some())
                     }
                 }
             }
@@ -335,7 +331,7 @@ mod tests {
 
                 if bitfield.has(j) {
                     assert_eq!(
-                        Some(j),
+                        Some(j as usize),
                         bitfield.lookup_from_end(bitfield.count_from_end(j))
                     )
                 }

@@ -7,14 +7,14 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bumpalo = { version = "3.12.0", features=["allocator_api"] } # Arena allocator
-rayon = "1.7.0" # Multithreading
-rand = "0.8.5" # RNG
-dialoguer = "0.10.2" # Console dialogs
-indicatif = "0.17.2" # Console progress bars
-const_for = "0.1.2" # Conmpile time loops
-rustc-hash = "1.1.0" # Fast hashmap (will remove soon)
-smallvec = "1.10.0" # Vectors which start on the stack (will remove soon)
+bumpalo = { version = "3.12.0", features=["allocator_api"] }
+rayon = "1.7.0"
+rand = "0.8.5"
+dialoguer = "0.10.2"
+indicatif = "0.17.2"
+const_for = "0.1.2"
+rustc-hash = "1.1.0"
+smallvec = "1.10.0"
 
 [profile.release]
 debug = true

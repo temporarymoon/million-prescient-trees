@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use crate::{
-    game::types::{CreatureSet, Edict, EdictSet, Player},
+    game::types::{CreatureChoice, CreatureSet, Edict, EdictIndex, EdictSet, Player},
     helpers::{ranged::MixRanged, subpair::encode_subpair},
 };
 use std::alloc::Allocator;
@@ -90,31 +90,143 @@ impl<'a> DecisionVector<'a> {
         roulette(&average, rng)
     }
 
-    pub fn encode_main_phase_index(
-        main: Creature,
+    /// Encodes a main phase user choice into a decision index.
+    pub fn encode_main_phase_index_user(
+        creatures: (Creature, Option<Creature>),
         edict: Edict,
-        extra_creature: Option<Creature>,
-        graveyard: CreatureSet,
         edicts: EdictSet,
-    ) -> usize {
-        let mut creature_index = graveyard.others().count_from_end(main);
-        if let Some(extra_creature) = extra_creature {
-            let second_creature_index = graveyard.count_from_end(extra_creature);
-            creature_index = encode_subpair((creature_index, second_creature_index));
-        }
-        let edict_index = edicts.count_from_end(edict);
+        graveyard: CreatureSet,
+    ) -> Option<usize> {
+        let edict = edicts.count_from_end(edict);
+        let creature_set = graveyard.others();
+        let first_creature_index = creature_set.count_from_end(creatures.0);
+        let creatures = match creatures.1 {
+            Some(second_creature) => {
+                let second_creature_index = creature_set.count_from_end(second_creature);
+                CreatureChoice::encode_two(first_creature_index, second_creature_index)?
+            }
+            None => CreatureChoice::encode_one(first_creature_index),
+        };
 
-        (creature_index as usize).mix_ranged(edict_index as usize, edicts.len() as usize)
+        Some(Self::encode_main_phase_index(
+            creatures,
+            edict,
+            edicts.len(),
+        ))
     }
 
-    #[allow(unused_variables)]
-    pub fn decode_main_phase_index(
+    /// Encodes a main phase "internal" choice into a decision index.
+    pub fn encode_main_phase_index(
+        creatures: CreatureChoice,
+        edict: EdictIndex,
+        edict_count: u8,
+    ) -> usize {
+        (creatures.0 as usize).mix_ranged(edict.0 as usize, edict_count as usize)
+    }
+
+    /// Decodes a main phase "internal" choice into a decision index.
+    pub fn decode_main_phase_index(index: usize, edict_count: u8) -> (CreatureChoice, EdictIndex) {
+        let (creatures, edict) = index.unmix_ranged(edict_count as usize);
+        (CreatureChoice(creatures as u8), EdictIndex(edict as u8))
+    }
+
+    /// Decodes a main phase user choice into a decision index.
+    pub fn decode_main_phase_index_user(
+        index: usize,
         edicts: EdictSet,
         graveyard: CreatureSet,
-        index: usize,
-    ) -> (usize, Edict) {
-        let (creature_index, edict_index) = index.unmix_ranged(edicts.len() as usize);
-        todo!()
+        seer_active: bool,
+    ) -> Option<(Creature, Option<Creature>, Edict)> {
+        let (creature_choice, edict_index) = Self::decode_main_phase_index(index, edicts.len());
+        let edict = edicts.lookup_from_end(edict_index)?;
+        let creature_set = graveyard.others();
+        if seer_active {
+            let (creature_one, creature_two) = creature_choice.decode_two()?;
+            Some((
+                creature_set.lookup_from_end(creature_one)?,
+                Some(creature_set.lookup_from_end(creature_two)?),
+                edict,
+            ))
+        } else {
+            let creature_index = creature_choice.decode_one();
+            Some((creature_set.lookup_from_end(creature_index)?, None, edict))
+        }
+    }
+}
+
+#[cfg(test)]
+mod decision_vector_tests {
+    use super::*;
+    #[test]
+    fn encode_decode_main_inverses_seer() {
+        for creature_choice in 0..100 {
+            for edicts_len in 1..5 {
+                for edict in 0..edicts_len {
+                    let encoded = DecisionVector::encode_main_phase_index(
+                        CreatureChoice(creature_choice),
+                        EdictIndex(edict),
+                        edicts_len,
+                    );
+
+                    let decoded = DecisionVector::decode_main_phase_index(encoded, edicts_len);
+
+                    assert_eq!(
+                        decoded,
+                        (CreatureChoice(creature_choice), EdictIndex(edict))
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn encode_decode_main_user_inverses_seer() {
+        let mut edicts = EdictSet::all();
+        edicts.0.remove(Edict::DivertAttention as u8);
+
+        let mut graveyard = CreatureSet::all().others();
+        graveyard.0.add(Creature::Seer as u8);
+        graveyard.0.add(Creature::Steward as u8);
+
+        for creature_one in Creature::CREATURES {
+            for creature_two in Creature::CREATURES {
+                if creature_one <= creature_two
+                    || graveyard.has(creature_one)
+                    || graveyard.has(creature_two)
+                {
+                    continue;
+                };
+
+                for edict in Edict::EDICTS {
+                    if !edicts.has(edict) {
+                        continue;
+                    };
+
+                    let encoded = DecisionVector::encode_main_phase_index_user(
+                        (creature_one, Some(creature_two)),
+                        edict,
+                        edicts,
+                        graveyard,
+                    );
+
+                    let decoded = encoded.and_then(|encoded| {
+                        DecisionVector::decode_main_phase_index_user(
+                            encoded, edicts, graveyard, true,
+                        )
+                    });
+
+                    assert_eq!(
+                        decoded,
+                        Some((creature_one, Some(creature_two), edict)),
+                        "The edicts are {:?}, and the current one is {:?} (represented as {}).
+                        ",
+                        edicts,
+                        edict,
+                        edict as u8
+                    );
+                }
+            }
+        }
     }
 }
 // }}}

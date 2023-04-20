@@ -17,11 +17,15 @@ const fn reverse_sort_pair(p: Decoded) -> Decoded {
 // {{{ Encode
 /// Encodes two ints into a single int, with the assumption that
 /// encode(a, b) should be equal to encode(b, a)
-pub const fn encode_subpair(p: Decoded) -> Encoded {
+pub const fn encode_subpair(p: Decoded) -> Option<Encoded> {
     let (a, b) = reverse_sort_pair(p);
     let a = a as Encoded;
 
-    return a * (a - 1) / 2 + b as Encoded;
+    if a == b {
+        None
+    } else {
+        Some(a * (a - 1) / 2 + b as Encoded)
+    }
 }
 // }}}
 // {{{ Generate lookup table
@@ -32,7 +36,8 @@ const DECODE_LOOKUP_TABLE: [Decoded; MAX_PAIR] = {
 
     const_for!(i in 0..MAX_N => {
         const_for!(j in 0..i => {
-            result[encode_subpair((i as u8, j as u8)) as usize] = (i as u8, j as u8);
+            let encoded = encode_subpair((i as u8, j as u8)).unwrap() as usize;
+            result[encoded] = (i as u8, j as u8);
         });
     });
 
@@ -42,7 +47,7 @@ const DECODE_LOOKUP_TABLE: [Decoded; MAX_PAIR] = {
 // {{{ Decode
 /// Decodes two ints encoded with the above function,
 /// where the two ints are smaller than some n.
-pub fn decode_subpair(x: Encoded) -> Decoded {
+pub fn decode_subpair(x: Encoded) -> Option<Decoded> {
     assert!(
         (x as usize) < MAX_PAIR,
         "Cannot decode numbers larger than {}! Received {}.",
@@ -50,7 +55,7 @@ pub fn decode_subpair(x: Encoded) -> Decoded {
         x
     );
 
-    DECODE_LOOKUP_TABLE[x as usize]
+    DECODE_LOOKUP_TABLE.get(x as usize).copied()
 }
 // }}}
 // {{{ Tests
@@ -75,8 +80,8 @@ mod tests {
         for i in 0..MAX_N {
             for j in 0..i {
                 assert_eq!(
-                    (i as Encoded, j as Encoded),
-                    decode_subpair(encode_subpair((i as u8, j as u8)))
+                    Some((i as Encoded, j as Encoded)),
+                    encode_subpair((i as u8, j as u8)).and_then(decode_subpair)
                 );
             }
         }
@@ -85,10 +90,10 @@ mod tests {
     #[test]
     fn encode_decode_inverses() {
         for ij in 0..MAX_PAIR {
-                assert_eq!(
-                    ij as Encoded,
-                    encode_subpair(decode_subpair(ij as Encoded))
-                );
+            assert_eq!(
+                Some(ij as Encoded),
+                decode_subpair(ij as Encoded).and_then(encode_subpair)
+            );
         }
     }
 

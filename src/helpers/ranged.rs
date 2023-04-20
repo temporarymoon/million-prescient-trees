@@ -1,9 +1,9 @@
 pub trait MixRanged: Sized {
     /// Embed an integer inside self given the maximum value of the integer.
-    fn mix_ranged(self, value: usize, max: usize) -> Self;
+    fn mix_ranged(self, value: usize, max: usize) -> usize;
 
     /// The inverse of mix_ranged.
-    fn unmix_ranged(self, max: usize) -> (Self, usize);
+    fn unmix_ranged(self, max: usize) -> (usize, usize);
 }
 
 impl MixRanged for usize {

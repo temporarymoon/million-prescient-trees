@@ -3,7 +3,7 @@
 use std::fmt::{self, Display};
 
 // {{{ Creature
-#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug, PartialOrd, Ord)]
 pub enum Creature {
     Wall,
     Seer,
@@ -68,12 +68,12 @@ impl Display for Edict {
 }
 
 impl Edict {
-    pub const EDICTS: [Edict; 5] = [
+    pub const EDICTS: [Edict; 5] =  [
+        Edict::RileThePublic,
+        Edict::DivertAttention,
         Edict::Sabotage,
         Edict::Gambit,
         Edict::Ambush,
-        Edict::RileThePublic,
-        Edict::DivertAttention,
     ];
 }
 
@@ -91,7 +91,11 @@ pub enum Battlefield {
 
 use Battlefield::*;
 
-use crate::helpers::bitfield::Bitfield;
+use crate::helpers::{
+    bitfield::Bitfield,
+    ranged::MixRanged,
+    subpair::{decode_subpair, encode_subpair},
+};
 
 impl Battlefield {
     pub const BATTLEFIELDS: [Battlefield; 6] = [Mountain, Glade, Urban, Night, LastStrand, Plains];
@@ -191,8 +195,22 @@ impl CreatureSet {
         self.0.has(creature as u8)
     }
 
-    pub fn count_from_end(&self, target: Creature) -> u8 {
-        self.0.count_from_end(target as u8)
+    pub fn count_from_end(&self, target: Creature) -> CreatureIndex {
+        assert!(
+            self.has(target),
+            "Bitfield {:?} does not contain creature {:?} (represented as {})",
+            self.0,
+            target,
+            target as u8
+        );
+
+        CreatureIndex(self.0.count_from_end(target as u8))
+    }
+
+    pub fn lookup_from_end(&self, index: CreatureIndex) -> Option<Creature> {
+        self.0
+            .lookup_from_end(index.0)
+            .map(|x| Creature::CREATURES[x])
     }
 }
 
@@ -205,14 +223,26 @@ impl EdictSet {
         self.0.has(edict as u8)
     }
 
-    pub fn count_from_end(&self, target: Edict) -> u8 {
-        self.0.count_from_end(target as u8)
-    }
-
     pub fn len(&self) -> u8 {
         let result = self.0.len();
         assert!(result <= 11); // Sanity checks
         result
+    }
+
+    pub fn count_from_end(&self, target: Edict) -> EdictIndex {
+        assert!(
+            self.has(target),
+            "Bitfield {:?} does not contain edict {:?} (represented as {})",
+            self.0,
+            target,
+            target as u8
+        );
+
+        EdictIndex(self.0.count_from_end(target as u8))
+    }
+
+    pub fn lookup_from_end(&self, index: EdictIndex) -> Option<Edict> {
+        self.0.lookup_from_end(index.0).map(|x| Edict::EDICTS[x])
     }
 }
 
@@ -237,5 +267,38 @@ impl PlayerStatusEffects {
 pub enum Player {
     Me,  // Current player
     You, // Opponent
+}
+// }}}
+// {{{ Bitfield indices
+/// Represents an index of a bit in an edict set.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct EdictIndex(pub u8);
+
+/// Represents an index of a bit in a creature set.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct CreatureIndex(pub u8);
+
+/// Either a single index or a pair of them into a creature set,
+/// where the order does not matter.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct CreatureChoice(pub u8);
+
+impl CreatureChoice {
+    pub fn encode_one(index: CreatureIndex) -> Self {
+        CreatureChoice(index.0)
+    }
+
+    pub fn encode_two(first: CreatureIndex, second: CreatureIndex) -> Option<Self> {
+        encode_subpair((first.0, second.0)).map(CreatureChoice)
+    }
+
+    pub fn decode_one(self) -> CreatureIndex {
+        CreatureIndex(self.0)
+    }
+
+    pub fn decode_two(self) -> Option<(CreatureIndex, CreatureIndex)> {
+        let (a, b) = decode_subpair(self.0)?;
+        Some((CreatureIndex(a), CreatureIndex(b)))
+    }
 }
 // }}}
