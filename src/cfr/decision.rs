@@ -19,60 +19,65 @@ pub type Utility = f32;
 
 // {{{ Decision vector
 pub struct DecisionVector<'a> {
-    strategy_sum: Vec<f32, &'a Bump>,
-    regret_sum: Vec<f32, &'a Bump>,
+    strategy_sum: &'a mut [f32],
+    regret_sum: &'a mut [f32],
+    regret_positive_magnitude: f32,
     realization_weights: (f32, f32),
 }
 
 impl<'a> DecisionVector<'a> {
     pub fn new(size: usize, allocator: &'a Bump) -> Self {
-        let mut regret_sum = Vec::with_capacity_in(size, allocator);
-        let mut strategy_sum = Vec::with_capacity_in(size, allocator);
-
-        regret_sum.resize(size, 0.0);
-        strategy_sum.resize(size, 0.0);
+        let regret_sum = allocator.alloc_slice_fill_copy(size, 0.0);
+        let strategy_sum = allocator.alloc_slice_fill_copy(size, 0.0);
 
         Self {
             regret_sum,
+            regret_positive_magnitude: 0.0,
             strategy_sum,
             realization_weights: (0.0, 0.0),
         }
     }
 
     /// Returns the number of actions we can take at this node.
+    #[inline]
     pub fn len(&self) -> usize {
         self.regret_sum.len()
     }
 
-    /// Update the strategy once some new regret has been accumulated.
+    /// Compute the ith value of the strategy.
     ///
     /// # Arguments
     ///
-    /// * `out` - The vector to put the strategy in.
-    pub fn strategy<A: Allocator>(&mut self, out: &mut Vec<f32, A>) {
-        out.resize(self.len(), 0.0);
-
-        for i in 0..self.len() {
-            // We cannot have negative probabilities.
-            out[i] = f32::max(self.regret_sum[i], 0.0);
-
-            // TODO: I don't remember why this was here.
-            if out[i] < 0.001 {
-                out[i] = 0.0;
-            }
+    /// * `index` - The index of the strategy to compute
+    #[inline]
+    pub fn strategy(&self, index: usize) -> f32 {
+        if self.regret_positive_magnitude > 0.0 {
+            f32::max(self.regret_sum[index], 0.0) / self.regret_positive_magnitude
+        } else {
+            1.0 / (self.len() as f32)
         }
+    }
 
-        normalize_vec(out);
-
+    /// Update the strategy sum with the current strategy.
+    pub fn update_strategy_sum(&mut self) {
         for i in 0..self.len() {
-            self.strategy_sum[i] += self.realization_weights.0 * out[i];
+            self.strategy_sum[i] += self.strategy(i);
         }
+    }
+
+    /// Updates the cached regret magnitude once the regret sum has been changed.
+    pub fn recompute_regret_magnitude(&mut self) {
+        let mut sum = 0.0;
+        for i in 0..self.len() {
+            sum += f32::max(self.regret_sum[i], 0.0);
+        }
+        self.regret_positive_magnitude = sum;
     }
 
     /// Returns the strategy one should take in an actual game.
     /// Do not use this during training! (Performs a clone)
-    pub fn get_average_strategy(&self) -> Vec<f32, &'a Bump> {
-        let mut average_strategy = self.strategy_sum.clone();
+    pub fn get_average_strategy(&self) -> Vec<f32> {
+        let mut average_strategy = self.strategy_sum.to_vec();
 
         normalize_vec(&mut average_strategy);
 
@@ -231,7 +236,7 @@ mod decision_vector_tests {
 }
 // }}}
 // {{{ Decision matrix
-pub type ScopeDecisionColumn<'a> = Vec<DecisionVector<'a>, &'a Bump>;
+pub type ScopeDecisionColumn<'a> = &'a mut [DecisionVector<'a>];
 pub struct DecisionMatrix<'a> {
     pub vectors: Pair<ScopeDecisionColumn<'a>>,
 }
