@@ -1,6 +1,5 @@
-{
-  inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/release-22.11";
+{ inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs/release-23.05";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
@@ -8,19 +7,11 @@
     flake-utils.lib.eachSystem
       (with flake-utils.lib.system; [ x86_64-linux ])
       (system:
-        let
-          pkgs = nixpkgs.legacyPackages.${system};
-          pythonDeps =
-            (packages: with packages; [
-            ]);
+        let pkgs = nixpkgs.legacyPackages.${system};
         in
-        rec {
-          packages = {
-            pythonEnv = pkgs.python3.withPackages pythonDeps;
-          };
+        {
           devShell = pkgs.mkShell {
             nativeBuildInputs = with pkgs; [
-              packages.pythonEnv
               rustup
               cargo
             ];
