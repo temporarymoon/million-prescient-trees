@@ -1,3 +1,5 @@
+/// This module focuses on encoding/decoding of unordered pairs with distinct elements.
+
 use const_for::const_for;
 
 use super::swap::Pair;
@@ -16,8 +18,9 @@ const fn reverse_sort_pair(p: Decoded) -> Decoded {
 
 // {{{ Encode
 /// Encodes two ints into a single int, with the assumption that
-/// encode(a, b) should be equal to encode(b, a)
-pub const fn encode_subpair(p: Decoded) -> Option<Encoded> {
+/// encode(a, b) should be equal to encode(b, a). 
+/// Fails when the elements are equal.
+pub const fn encode_upair(p: Decoded) -> Option<Encoded> {
     let (a, b) = reverse_sort_pair(p);
     let a = a as Encoded;
 
@@ -36,7 +39,7 @@ const DECODE_LOOKUP_TABLE: [Decoded; MAX_PAIR] = {
 
     const_for!(i in 0..MAX_N => {
         const_for!(j in 0..i => {
-            let encoded = encode_subpair((i as u8, j as u8)).unwrap() as usize;
+            let encoded = encode_upair((i as u8, j as u8)).unwrap() as usize;
             result[encoded] = (i as u8, j as u8);
         });
     });
@@ -47,7 +50,7 @@ const DECODE_LOOKUP_TABLE: [Decoded; MAX_PAIR] = {
 // {{{ Decode
 /// Decodes two ints encoded with the above function,
 /// where the two ints are smaller than some n.
-pub fn decode_subpair(x: Encoded) -> Option<Decoded> {
+pub fn decode_upair(x: Encoded) -> Option<Decoded> {
     assert!(
         (x as usize) < MAX_PAIR,
         "Cannot decode numbers larger than {}! Received {}.",
@@ -68,8 +71,8 @@ mod tests {
         for i in 0..MAX_N {
             for j in 0..i {
                 assert_eq!(
-                    encode_subpair((i as u8, j as u8)),
-                    encode_subpair((j as u8, i as u8))
+                    encode_upair((i as u8, j as u8)),
+                    encode_upair((j as u8, i as u8))
                 );
             }
         }
@@ -81,7 +84,7 @@ mod tests {
             for j in 0..i {
                 assert_eq!(
                     Some((i as Encoded, j as Encoded)),
-                    encode_subpair((i as u8, j as u8)).and_then(decode_subpair)
+                    encode_upair((i as u8, j as u8)).and_then(decode_upair)
                 );
             }
         }
@@ -92,7 +95,7 @@ mod tests {
         for ij in 0..MAX_PAIR {
             assert_eq!(
                 Some(ij as Encoded),
-                decode_subpair(ij as Encoded).and_then(encode_subpair)
+                decode_upair(ij as Encoded).and_then(encode_upair)
             );
         }
     }
@@ -104,7 +107,7 @@ mod tests {
         for ij in 0..MAX_PAIR {
             for kl in 0..MAX_PAIR {
                 if ij != kl {
-                    assert_ne!(decode_subpair(ij as Encoded), decode_subpair(kl as Encoded));
+                    assert_ne!(decode_upair(ij as Encoded), decode_upair(kl as Encoded));
                 }
             }
         }
@@ -120,8 +123,8 @@ mod tests {
                             != reverse_sort_pair((k as u8, l as u8))
                         {
                             assert_ne!(
-                                encode_subpair((i as u8, j as u8)),
-                                encode_subpair((k as u8, l as u8))
+                                encode_upair((i as u8, j as u8)),
+                                encode_upair((k as u8, l as u8))
                             );
                         }
                     }

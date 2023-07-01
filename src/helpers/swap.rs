@@ -1,3 +1,4 @@
+/// Trait which allows swapping the elements of some structure.
 pub trait Swap {
     fn swap(self) -> Self;
 }
@@ -10,6 +11,7 @@ impl<T> Swap for Pair<T> {
     }
 }
 
+/// Swap the elements of a structure only if a condition is true.
 pub fn conditional_swap<T>(pair: T, should_swap: bool) -> T
 where
     T: Swap,

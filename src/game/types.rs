@@ -93,8 +93,7 @@ use Battlefield::*;
 
 use crate::helpers::{
     bitfield::Bitfield,
-    ranged::MixRanged,
-    subpair::{decode_subpair, encode_subpair},
+    upair::{decode_upair, encode_upair},
 };
 
 impl Battlefield {
@@ -289,7 +288,7 @@ impl CreatureChoice {
     }
 
     pub fn encode_two(first: CreatureIndex, second: CreatureIndex) -> Option<Self> {
-        encode_subpair((first.0, second.0)).map(CreatureChoice)
+        encode_upair((first.0, second.0)).map(CreatureChoice)
     }
 
     pub fn decode_one(self) -> CreatureIndex {
@@ -297,7 +296,7 @@ impl CreatureChoice {
     }
 
     pub fn decode_two(self) -> Option<(CreatureIndex, CreatureIndex)> {
-        let (a, b) = decode_subpair(self.0)?;
+        let (a, b) = decode_upair(self.0)?;
         Some((CreatureIndex(a), CreatureIndex(b)))
     }
 }

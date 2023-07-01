@@ -1,9 +1,6 @@
 use bumpalo::Bump;
 
-use super::{
-    simulate::{CompleteGameState, MainPhaseChoice, Phase, Score},
-    types::Player,
-};
+use super::simulate::MainPhaseChoice;
 
 pub struct GameTreeContext<'a> {
     allocator: &'a Bump,

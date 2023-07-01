@@ -8,7 +8,7 @@
 
 use game::types::{Creature, CreatureSet, Edict, EdictSet};
 
-use crate::cfr::decision::DecisionVector;
+use crate::cfr::decision::DecisionIndex;
 
 mod cfr;
 mod echo;
@@ -37,7 +37,7 @@ fn main() {
                     continue;
                 };
 
-                let encoded = DecisionVector::encode_main_phase_index_user(
+                let encoded = DecisionIndex::encode_main_phase_index_user(
                     (creature_one, Some(creature_two)),
                     edict,
                     edicts,
@@ -45,7 +45,7 @@ fn main() {
                 );
 
                 println!(
-                    "Edict {:?}, creature₁ {:?}, creature₂ {:?} => {}",
+                    "Edict {:?}, creature₁ {:?}, creature₂ {:?} => {:?}",
                     edict,
                     creature_one,
                     creature_two,
