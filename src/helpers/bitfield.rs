@@ -161,7 +161,7 @@ impl Bitfield {
     ///  
     /// # Arguments
     ///
-    /// * `target` - The creature to look for the index of.
+    /// * `target` - The index to count ones after.
     ///
     /// # Examples
     ///
@@ -189,6 +189,32 @@ impl Bitfield {
             .nth(index as usize)
             .map(|(i, _)| i)
     }
+
+    /// Encode a bitfield as a subset of another bitfield.
+    /// Bits are shifted to the left such that all zero bits in the super-bitfield
+    /// are not present in the sub-bitfield.
+    ///
+    /// Properties:
+    /// - the empty bitfield acts as a left zero elements
+    /// - the full bitfield acts as a right identity
+    pub fn encode_relative_to(&self, other: Bitfield) -> Self {
+        let mut result = Bitfield::default();
+
+        for i in 0..16 {
+            if self.has(i) {
+                assert!(
+                    other.has(i),
+                    "{:?} contains bits not contained in {:?}",
+                    self,
+                    other
+                );
+
+                result.add(other.count_from_end(i))
+            }
+        }
+
+        result
+    }
 }
 // }}}
 // {{{ Ones encoding
@@ -204,7 +230,7 @@ pub mod one_encoding {
     const CASES: usize = 17;
 
     /// For efficiency, we store all the decode tables in the same array,
-    /// starting at differet indices. 
+    /// starting at differet indices.
     ///
     /// An index is simply equal to the previous one, plus the number
     /// of spots required by the previous table (in this case, `16 choose i - 1`).
@@ -332,6 +358,8 @@ impl Into<u64> for Bitfield {
 // {{{ Tests
 #[cfg(test)]
 mod tests {
+    use std::assert_eq;
+
     use super::*;
 
     #[test]
@@ -488,6 +516,32 @@ mod tests {
             let bitfield = Bitfield::new(i);
             assert_eq!(bitfield.union(&bitfield.invert()), Bitfield::all())
         }
+    }
+
+    #[test]
+    fn encode_relative_to_empty_left_zero_elements() {
+        let empty = Bitfield::default();
+        for i in 0..u16::MAX {
+            let bitfield = Bitfield::new(i);
+            assert_eq!(empty.encode_relative_to(bitfield), empty)
+        }
+    }
+
+    #[test]
+    fn encode_relative_to_full_right_identity() {
+        let full = Bitfield::all();
+        for i in 0..u16::MAX {
+            let bitfield = Bitfield::new(i);
+            assert_eq!(bitfield.encode_relative_to(full), bitfield)
+        }
+    }
+
+    #[test]
+    fn encode_relative_to_examples() {
+        assert_eq!(
+            Bitfield::new(0b100010).encode_relative_to(Bitfield::new(0b101011)),
+            Bitfield::new(0b1010)
+        );
     }
 }
 // }}}

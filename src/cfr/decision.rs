@@ -277,20 +277,11 @@ pub type HandContentIndex = usize;
 
 impl HiddenIndex {
     pub fn encode_hand_contents(hand: CreatureSet, graveyard: CreatureSet) -> Option<HandContentIndex> {
-        let mut result = None;
         let creature_set = graveyard.others();
 
         for creature in Creature::CREATURES {
             if creature_set.has(creature) {
                 let creature_index = creature_set.count_from_end(creature);
-                match result {
-                    None => {
-                        result = Some(creature_index);
-                    }
-                    Some(existing) => {
-                        // result = encode_upair((result, existing));
-                    }
-                }
             }
         }
 
