@@ -1,3 +1,4 @@
+use const_for::const_for;
 use core::fmt;
 
 /// Bitfield containing up to 16 bits.
@@ -7,8 +8,10 @@ use core::fmt;
 pub struct Bitfield(u16);
 
 // {{{ Bitfield
+// {{{ Main definitions
 impl Bitfield {
-    pub fn new(x: u16) -> Self {
+    #[inline]
+    pub const fn new(x: u16) -> Self {
         Bitfield(x)
     }
 
@@ -42,7 +45,7 @@ impl Bitfield {
     /// has(0b0100, 1) // false
     /// has(0b0100, 2) // true
     /// ```
-    pub fn has(self, index: u8) -> bool {
+    pub const fn has(self, index: u8) -> bool {
         ((self.0 >> (index as u16)) & 1) != 0
     }
 
@@ -83,11 +86,13 @@ impl Bitfield {
     }
 
     /// Sets all bits to one.
+    #[inline]
     pub fn fill(&mut self) {
         self.0 = u16::MAX;
     }
 
     /// Sets all bits to zero.
+    #[inline]
     pub fn clear(&mut self) {
         self.0 = 0;
     }
@@ -99,6 +104,7 @@ impl Bitfield {
     /// ```
     /// union(0b0101, 0b1010) // 0xF
     /// ```
+    #[inline]
     pub fn union(&self, other: &Self) -> Self {
         Bitfield(self.0 | other.0)
     }
@@ -127,6 +133,7 @@ impl Bitfield {
     /// ```
     /// invert(0b010110) // 101001
     /// ```
+    #[inline]
     pub fn invert(&self) -> Self {
         Bitfield(!self.0)
     }
@@ -138,13 +145,13 @@ impl Bitfield {
     /// ```
     /// len(0b101011) // 4
     /// ```
-    pub fn len(&self) -> u8 {
+    pub const fn len(&self) -> u8 {
         let mut result = 0;
+        let mut copy = self.0;
 
-        for i in 0..16 {
-            if self.has(i) {
-                result += 1;
-            }
+        while copy != 0 {
+            result += (copy & 1) as u8;
+            copy >>= 1;
         }
 
         result
@@ -183,7 +190,127 @@ impl Bitfield {
             .map(|(i, _)| i)
     }
 }
+// }}}
+// {{{ Ones encoding
+pub mod one_encoding {
+    use crate::helpers::choose::choose;
 
+    use super::*;
+
+    /// The maximum number we want to encode (in this case, we want to encode all u16s)
+    const MAX_DECODED: usize = u16::MAX as usize;
+
+    /// The number of possible number of bits in a int smaller than `MAX_DECODED`.
+    const CASES: usize = 17;
+
+    /// For efficiency, we store all the decode tables in the same array,
+    /// starting at differet indices. 
+    ///
+    /// An index is simply equal to the previous one, plus the number
+    /// of spots required by the previous table (in this case, `16 choose i - 1`).
+    const MAGIC_INDICES: [usize; CASES] = {
+        let mut results = [0; CASES];
+
+        const_for!(i in 1..CASES => {
+            results[i] = results[i - 1] + choose(16, i - 1);
+        });
+
+        results
+    };
+
+    /// The lookup tables required for encoding!
+    /// - the first table maps raw values to encoded values.
+    /// - the second array contains 17 distinct decoding tables
+    ///   concatenated together. The nth table maps encoded values
+    ///   to respective raw values with n-ones inside.
+    /// - the third table contains the number of entries in each table
+    ///   contained in the second array (used for testing / asserts).
+    const LOOKUP_TABLES: ([u16; MAX_DECODED], [u16; MAX_DECODED], [usize; CASES]) = {
+        let mut encode = [0 as u16; MAX_DECODED];
+        let mut decode = [0 as u16; MAX_DECODED];
+        let mut lengths = [0 as usize; CASES];
+
+        const_for!(decoded in 0..(MAX_DECODED as u16) => {
+            let count = Bitfield::new(decoded).len() as usize;
+            let encoded = lengths[count];
+            decode[MAGIC_INDICES[count] + encoded] = decoded;
+            encode[decoded as usize] = encoded as u16;
+            lengths[count] += 1;
+        });
+
+        (encode, decode, lengths)
+    };
+
+    impl Bitfield {
+        /// Efficiently assume the number of ones in the bit
+        /// representation of a number is known, removing such
+        /// useless information.
+        #[inline]
+        pub fn encode_ones(&self) -> u16 {
+            LOOKUP_TABLES.0[self.0 as usize]
+        }
+
+        /// Readd the information removed by `encode_ones`.
+        #[inline]
+        pub fn decode_ones(encoded: u16, ones: usize) -> Option<Self> {
+            let index = encoded as usize;
+
+            if index >= *LOOKUP_TABLES.2.get(ones)? {
+                return None;
+            } else {
+                return Some(Bitfield::new(
+                    *LOOKUP_TABLES.1.get(MAGIC_INDICES.get(ones)? + index)?,
+                ));
+            }
+        }
+    }
+
+    // {{{ Tests
+    #[cfg(test)]
+    mod tests {
+        use std::assert_eq;
+
+        use super::*;
+
+        /// Checks that all the spots in the decoding lookup table have been used up.
+        #[test]
+        fn lengths_equal_to_magic_index_diffs() {
+            for i in 0..(CASES - 1) {
+                assert_eq!(LOOKUP_TABLES.2[i], MAGIC_INDICES[i + 1] - MAGIC_INDICES[i]);
+            }
+        }
+
+        #[test]
+        fn encode_decode_identity() {
+            for i in 0..u16::MAX {
+                let bitfield = Bitfield::new(i);
+
+                assert_eq!(
+                    Some(bitfield),
+                    Bitfield::decode_ones(bitfield.encode_ones(), bitfield.len() as usize)
+                );
+            }
+        }
+
+        #[test]
+        fn decode_encode_identity() {
+            for ones in 0..16 {
+                for i in 0..u16::MAX {
+                    let decode_encode_i =
+                        Bitfield::decode_ones(i, ones).map(|bitfield| bitfield.encode_ones());
+
+                    match decode_encode_i {
+                        None => break,
+                        Some(decode_encode_i) => assert_eq!(decode_encode_i, i),
+                    }
+                }
+            }
+        }
+    }
+    // }}}
+}
+// }}}
+// {{{ Trait implementations
 impl Default for Bitfield {
     fn default() -> Self {
         Bitfield::new(0)
@@ -363,4 +490,5 @@ mod tests {
         }
     }
 }
+// }}}
 // }}}

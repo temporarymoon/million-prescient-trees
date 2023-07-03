@@ -1,5 +1,6 @@
 use rand::Rng;
 
+pub mod choose;
 pub mod swap;
 pub mod bitfield;
 pub mod ranged;
