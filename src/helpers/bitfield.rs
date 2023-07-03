@@ -215,6 +215,27 @@ impl Bitfield {
 
         result
     }
+
+    /// Inverse of `encode_relative_to`.
+    pub fn decode_relative_to(&self, other: Bitfield) -> Self {
+        let mut result = Bitfield::default();
+
+        assert!(
+            self.0 & !((1 << other.len()) - 1) == 0,
+            "Too many bits are populated in {:?}. Expected at most {:?}.len() = {}",
+            self,
+            other,
+            other.len()
+        );
+
+        for i in 0..16 {
+            if other.has(i) && self.has(other.count_from_end(i)) {
+                result.add(i);
+            }
+        }
+
+        result
+    }
 }
 // }}}
 // {{{ Ones encoding
@@ -465,7 +486,7 @@ mod tests {
 
     #[test]
     fn lookup_from_end_smaller_than_count_always_just() {
-        for i in 0..u16::MAX {
+        for i in 0..=u16::MAX {
             for j in 0..16 {
                 let bitfield = Bitfield::new(i);
 
@@ -480,7 +501,7 @@ mod tests {
 
     #[test]
     fn lookup_from_end_count_from_end_inverses() {
-        for i in 0..u16::MAX {
+        for i in 0..=u16::MAX {
             for j in 0..16 {
                 let bitfield = Bitfield::new(i);
 
@@ -496,7 +517,7 @@ mod tests {
 
     #[test]
     fn invert_is_invert_last_16() {
-        for i in 0..u16::MAX {
+        for i in 0..=u16::MAX {
             let bitfield = Bitfield::new(i);
             assert_eq!(bitfield.invert(), bitfield.invert_last_n(16))
         }
@@ -504,7 +525,7 @@ mod tests {
 
     #[test]
     fn invert_last_0_is_identity() {
-        for i in 0..u16::MAX {
+        for i in 0..=u16::MAX {
             let bitfield = Bitfield::new(i);
             assert_eq!(bitfield.invert_last_n(0), bitfield)
         }
@@ -512,7 +533,7 @@ mod tests {
 
     #[test]
     fn union_with_inverse_is_all() {
-        for i in 0..u16::MAX {
+        for i in 0..=u16::MAX {
             let bitfield = Bitfield::new(i);
             assert_eq!(bitfield.union(&bitfield.invert()), Bitfield::all())
         }
@@ -521,7 +542,7 @@ mod tests {
     #[test]
     fn encode_relative_to_empty_left_zero_elements() {
         let empty = Bitfield::default();
-        for i in 0..u16::MAX {
+        for i in 0..=u16::MAX {
             let bitfield = Bitfield::new(i);
             assert_eq!(empty.encode_relative_to(bitfield), empty)
         }
@@ -530,7 +551,7 @@ mod tests {
     #[test]
     fn encode_relative_to_full_right_identity() {
         let full = Bitfield::all();
-        for i in 0..u16::MAX {
+        for i in 0..=u16::MAX {
             let bitfield = Bitfield::new(i);
             assert_eq!(bitfield.encode_relative_to(full), bitfield)
         }
@@ -542,6 +563,46 @@ mod tests {
             Bitfield::new(0b100010).encode_relative_to(Bitfield::new(0b101011)),
             Bitfield::new(0b1010)
         );
+    }
+
+    #[test]
+    fn decode_relative_to_examples() {
+        assert_eq!(
+            Bitfield::new(0b1010).decode_relative_to(Bitfield::new(0b101011)),
+            Bitfield::new(0b100010)
+        );
+    }
+
+    #[test]
+    fn decode_encode_relative_to_identity() {
+        for i in 0..1000 {
+            for j in 0..1000 {
+                let other = Bitfield::new(i);
+                let j = j & i; // ensure j is a sub-bitfield of i
+                let bitfield = Bitfield::new(j);
+                assert_eq!(
+                    bitfield.encode_relative_to(other).decode_relative_to(other),
+                    bitfield
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn encode_decode_relative_to_identity() {
+        for i in 0..1000 {
+            for j in 0..1000 {
+                let other = Bitfield::new(i);
+                // ensure only the last n bits of j are populated,
+                // where n is the length of i.
+                let j = j & ((1 << other.len()) - 1);
+                let bitfield = Bitfield::new(j);
+                assert_eq!(
+                    bitfield.decode_relative_to(other).encode_relative_to(other),
+                    bitfield
+                );
+            }
+        }
     }
 }
 // }}}
