@@ -11,13 +11,15 @@ use std::println;
 use game::types::{Creature, CreatureSet, Edict, EdictSet};
 use helpers::bitfield::Bitfield;
 
-use crate::{cfr::decision::DecisionIndex, helpers::choose::choose};
+use crate::{
+    cfr::decision::DecisionIndex,
+    helpers::{choose::choose, upair::decode_upair},
+};
 
 mod cfr;
 mod echo;
 mod game;
 mod helpers;
-
 
 fn main() {
     // let mut edicts = EdictSet::all();
@@ -61,7 +63,15 @@ fn main() {
     //
 
     let c = 2;
-    for i in 0..choose(16, c) {
-        println!("{:?}", Bitfield::decode_ones(i as u16, c).unwrap());
+    for i in 0..36 {
+        let (a, b) = decode_upair(i as u8).unwrap();
+        let mut bitfield = Bitfield::default();
+        bitfield.add(a);
+        bitfield.add(b);
+        println!(
+            "{:?} --- {:?}",
+            Bitfield::decode_ones(i as u16, c).unwrap(),
+            bitfield
+        );
     }
 }
