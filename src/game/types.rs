@@ -385,6 +385,7 @@ pub enum Player {
     You, // Opponent
 }
 // }}}
+// }}}
 // {{{ Bitfield indices
 /// Represents an index of a bit in an edict set.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
