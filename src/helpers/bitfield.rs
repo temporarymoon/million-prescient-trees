@@ -402,6 +402,41 @@ impl Into<u16> for Bitfield {
     }
 }
 // }}}
+// {{{ BitfieldIterator
+pub struct BitfieldIterator {
+    index: u8,
+    bitfield: Bitfield,
+}
+
+impl Iterator for BitfieldIterator {
+    type Item = u8;
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.index <= 16 {
+            if self.bitfield.has(self.index) {
+                let result = self.index;
+                self.index += 1;
+                return Some(result);
+            } else {
+                self.index += 1;
+            }
+        }
+
+        None
+    }
+}
+
+impl IntoIterator for Bitfield {
+    type Item = u8;
+    type IntoIter = BitfieldIterator;
+
+    fn into_iter(self) -> Self::IntoIter {
+        BitfieldIterator {
+            index: 0,
+            bitfield: self,
+        }
+    }
+}
+// }}}
 // {{{ Tests
 #[cfg(test)]
 mod tests {

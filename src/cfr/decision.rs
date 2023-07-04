@@ -112,10 +112,9 @@ impl DecisionIndex {
     ) -> Option<Creature> {
         let possibilities = Self::sabotage_decision_possibilities(hand, choice, graveyard);
 
-        let decoded: usize = CreatureSet::decode_ones(self.0 as u16, 1)?
+        let decoded = CreatureSet::decode_ones(self.0 as u16, 1)?
             .decode_relative_to(possibilities)?
-            .0
-            .into();
+            .into_iter().next()? as usize;
 
         Some(Creature::CREATURES[decoded])
     }
@@ -125,6 +124,8 @@ impl DecisionIndex {
 // {{{ Tests
 #[cfg(test)]
 mod decision_index_tests {
+    use std::assert_eq;
+
     use super::*;
     use crate::game::types::Creature;
 
@@ -154,13 +155,13 @@ mod decision_index_tests {
     #[test]
     fn encode_decode_main_user_inverses_seer() {
         let mut edicts = EdictSet::all();
-        edicts.0.remove(Edict::DivertAttention as u8);
+        edicts.remove(Edict::DivertAttention);
 
         let mut hand = CreatureSet::default();
-        hand.0.add(Creature::Rogue as u8);
-        hand.0.add(Creature::Steward as u8);
-        hand.0.add(Creature::Wall as u8);
-        hand.0.add(Creature::Witch as u8);
+        hand.add(Creature::Rogue);
+        hand.add(Creature::Steward);
+        hand.add(Creature::Wall);
+        hand.add(Creature::Witch);
 
         for creature_one in Creature::CREATURES {
             for creature_two in Creature::CREATURES {
@@ -198,6 +199,35 @@ mod decision_index_tests {
                     );
                 }
             }
+        }
+    }
+    // }}}
+    // {{{ Sabotage phase
+    #[test]
+    fn encode_decode_sabotage_inverses() {
+        let mut hand = CreatureSet::default();
+        hand.add(Creature::Rogue);
+        hand.add(Creature::Wall);
+
+        let mut graveyard = CreatureSet::default();
+        graveyard.add(Creature::Seer);
+        graveyard.add(Creature::Steward);
+
+        let choice = UserCreatureChoice(Creature::Witch, Some(Creature::Monarch));
+
+        for creature in Creature::CREATURES {
+            if hand.has(creature)
+                || graveyard.has(creature)
+                || choice.as_creature_set().has(creature)
+            {
+                continue;
+            };
+
+            assert_eq!(
+                DecisionIndex::encode_sabotage_index(creature, hand, choice, graveyard)
+                    .decode_sabotage_index(hand, choice, graveyard),
+                Some(creature)
+            );
         }
     }
     // }}}

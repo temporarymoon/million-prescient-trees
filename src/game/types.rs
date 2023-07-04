@@ -2,7 +2,7 @@
 
 use std::{
     debug_assert,
-    fmt::{self, Display},
+    fmt::{self, Display}
 };
 
 // {{{ Creature
@@ -204,6 +204,11 @@ impl CreatureSet {
     }
 
     #[inline]
+    pub fn remove(&mut self, creature: Creature) {
+        self.0.remove(creature as u8)
+    }
+
+    #[inline]
     pub fn has(&self, creature: Creature) -> bool {
         self.0.has(creature as u8)
     }
@@ -265,7 +270,44 @@ impl CreatureSet {
     pub fn union(&self, other: &Self) -> Self {
         Self(self.0.union(&other.0))
     }
+
 }
+
+// {{{ IntoIter
+pub struct CreatureSetIterator {
+    index: u8,
+    bitfield: CreatureSet,
+}
+
+impl Iterator for CreatureSetIterator {
+    type Item = Creature;
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.index <= 11 {
+            if self.bitfield.0.has(self.index) {
+                let result = self.index;
+                self.index += 1;
+                return Some(Creature::CREATURES[result as usize]);
+            } else {
+                self.index += 1;
+            }
+        }
+
+        None
+    }
+}
+
+impl IntoIterator for CreatureSet {
+    type Item = Creature;
+    type IntoIter = CreatureSetIterator;
+
+    fn into_iter(self) -> Self::IntoIter {
+        CreatureSetIterator {
+            index: 0,
+            bitfield: self,
+        }
+    }
+}
+// }}}
 
 impl Default for CreatureSet {
     fn default() -> Self {
@@ -278,6 +320,11 @@ impl EdictSet {
     #[inline]
     pub fn all() -> Self {
         EdictSet(Bitfield::n_ones(5))
+    }
+
+    #[inline]
+    pub fn remove(&mut self, edict: Edict) {
+        self.0.remove(edict as u8)
     }
 
     #[inline]
@@ -397,8 +444,11 @@ impl CreatureChoice {
     /// resulting integer.
     pub fn encode_user_choice(user_choice: UserCreatureChoice, possibilities: CreatureSet) -> Self {
         Self(
-user_choice.as_creature_set()
-            .encode_relative_to(possibilities).encode_ones() as u8)
+            user_choice
+                .as_creature_set()
+                .encode_relative_to(possibilities)
+                .encode_ones() as u8,
+        )
     }
 
     /// Inverse of `encode_user_choice`.
@@ -412,11 +462,11 @@ user_choice.as_creature_set()
         let decoded =
             CreatureSet::decode_ones(encoded, length)?.decode_relative_to(possibilities)?;
 
-        let mut creatures = Creature::CREATURES.iter().filter(|i| decoded.has(**i));
+        let mut creatures = decoded.into_iter();
 
-        let first = *creatures.next()?;
+        let first = creatures.next()?;
         if seer_active {
-            let second = *creatures.next()?;
+            let second = creatures.next()?;
             Some(UserCreatureChoice(first, Some(second)))
         } else {
             Some(UserCreatureChoice(first, None))
