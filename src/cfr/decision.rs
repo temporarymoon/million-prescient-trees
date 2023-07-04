@@ -74,10 +74,10 @@ impl DecisionIndex {
 
 // {{{ Tests
 #[cfg(test)]
-mod decision_vector_tests {
+mod decision_index_tests {
+    use super::*;
     use crate::game::types::Creature;
 
-    use super::*;
     // {{{ Main phase
     #[test]
     fn decision_encode_decode_main_inverses_seer() {
@@ -331,6 +331,85 @@ impl HiddenIndex {
     }
     // }}}
 }
+
+// {{{ Tests
+#[cfg(test)]
+mod hidden_index_tests {
+    use super::*;
+    use crate::{game::types::Creature, helpers::bitfield::Bitfield};
+    use std::assert_eq;
+
+    // {{{ Main phase
+    // We test for only the first 100 hand/graveyard configurations
+    // (otherwise this would run too slow).
+    #[test]
+    fn hidden_encode_decode_main_inverses() {
+        // hand
+        for i in 0..=100 {
+            // graveyard
+            for j in 0..=100 {
+                // Make sure no cards from therhand are in the graveyard.
+                let i = i & !j;
+                // Construct bitfields
+                let graveyard = CreatureSet(Bitfield::new(j));
+                let hand = CreatureSet(Bitfield::new(i));
+
+                assert_eq!(
+                    HiddenIndex::encode_main_index(hand, graveyard)
+                        .decode_main_index(graveyard, hand.len() as usize),
+                    Some(hand)
+                );
+            }
+        }
+    }
+    // }}}
+    // {{{ Sabotage & seer phases
+    #[test]
+    fn hidden_encode_decode_sabotage_seer_inverses_seer() {
+        // hand
+        for i in 0..=100 {
+            // graveyard
+            for j in 0..=100 {
+                // Make sure no cards from therhand are in the graveyard.
+                let i = i & !j;
+
+                // Construct bitfields
+                let graveyard = CreatureSet(Bitfield::new(j));
+                let hand = CreatureSet(Bitfield::new(i));
+
+                // Generate creature choice
+                for creature_one in Creature::CREATURES {
+                    for creature_two in Creature::CREATURES {
+                        if creature_one >= creature_two
+                            || graveyard.has(creature_one)
+                            || graveyard.has(creature_two)
+                        {
+                            continue;
+                        };
+
+                        let creature_choice = UserCreatureChoice(creature_one, Some(creature_two));
+
+                        assert_eq!(
+                            HiddenIndex::encode_sabotage_seer_index(
+                                creature_choice,
+                                hand,
+                                graveyard
+                            )
+                            .decode_sabotage_seer_index(
+                                true,
+                                hand.len() as usize,
+                                graveyard
+                            ),
+                            Some((creature_choice, hand))
+                        );
+                    }
+                }
+            }
+        }
+    }
+    // }}}
+}
+// }}}
 // }}}
 // {{{ Decision matrix
 pub type DecisionRows<'a> = &'a mut [DecisionVector<'a>];
