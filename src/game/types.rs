@@ -94,10 +94,7 @@ pub enum Battlefield {
 
 use Battlefield::*;
 
-use crate::helpers::{
-    bitfield::Bitfield,
-    choose::choose
-};
+use crate::helpers::{bitfield::Bitfield, choose::choose};
 
 impl Battlefield {
     pub const BATTLEFIELDS: [Battlefield; 6] = [Mountain, Glade, Urban, Night, LastStrand, Plains];
@@ -355,6 +352,14 @@ impl UserCreatureChoice {
             1
         }
     }
+
+
+    /// Returns the length of some user creature choice based
+    /// on whether the seer status effect is active or not.
+    #[inline]
+    pub fn len_from_status(seer_active: bool) -> usize {
+        if seer_active { 2 } else { 1 }
+    }
 }
 // }}}
 // {{{ CreatureChoice
@@ -384,20 +389,18 @@ impl CreatureChoice {
     /// Inverse of `encode_user_choice`.
     pub fn decode_user_choice(
         self,
-        seer_is_active: bool,
+        seer_active: bool,
         graveyard: CreatureSet,
     ) -> Option<UserCreatureChoice> {
-        let length = if seer_is_active { 2 } else { 1 };
+        let length = UserCreatureChoice::len_from_status(seer_active);
         let encoded = self.0 as u16;
         let decoded =
             CreatureSet::decode_ones(encoded, length)?.decode_relative_to(graveyard.others())?;
 
-        let mut creatures = Creature::CREATURES
-            .iter()
-            .filter(|i| decoded.has(**i));
+        let mut creatures = Creature::CREATURES.iter().filter(|i| decoded.has(**i));
 
         let first = *creatures.next()?;
-        if seer_is_active {
+        if seer_active {
             let second = *creatures.next()?;
             Some(UserCreatureChoice(first, Some(second)))
         } else {

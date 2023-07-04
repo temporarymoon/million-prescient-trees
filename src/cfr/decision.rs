@@ -295,10 +295,11 @@ impl HiddenIndex {
         Self::decode_hand_contents(self.0 as u16, graveyard, hand_size)
     }
     // }}}
-    // {{{ Sabotage phase
-    /// Encodes all hidden informations known by a player during the main phase.
-    #[inline]
-    pub fn encode_sabotage_index(
+    // {{{ Sabotage & seer phases
+    /// Encodes all hidden informations known by a player during the sabotage or seer phases.
+    /// The only information a player learns between the two is what creature the opponent has
+    /// played, but this can be encoded by simply adding said creature to the graveyard.
+    pub fn encode_sabotage_seer_index(
         user_creature_choice: UserCreatureChoice,
         hand: CreatureSet,
         graveyard: CreatureSet,
@@ -306,12 +307,27 @@ impl HiddenIndex {
         let possibilites = graveyard.others();
         let hand_contents = Self::encode_hand_contents(hand, graveyard) as usize;
         let encoded_choice = CreatureChoice::encode_user_choice(user_creature_choice, graveyard);
-        let encoded = hand_contents.mix_ranged(
-            encoded_choice.0 as usize,
-            possibilites.hands_of_size(user_creature_choice.len()),
-        );
+        let max = possibilites.hands_of_size(user_creature_choice.len());
+        let encoded = hand_contents.mix_ranged(encoded_choice.0 as usize, max);
 
         Self(encoded)
+    }
+
+    /// Inverse of `encode_sabotage_index`
+    #[inline]
+    pub fn decode_sabotage_seer_index(
+        self,
+        seer_active: bool,
+        hand_size: usize,
+        graveyard: CreatureSet,
+    ) -> Option<(UserCreatureChoice, CreatureSet)> {
+        let possibilites = graveyard.others();
+        let max = possibilites.hands_of_size(UserCreatureChoice::len_from_status(seer_active));
+        let (hand_contents, encoded_choice) = self.0.unmix_ranged(max);
+        let user_creature_choice =
+            CreatureChoice(encoded_choice as u8).decode_user_choice(seer_active, graveyard)?;
+        let hand_contents = Self::decode_hand_contents(hand_contents as u16, graveyard, hand_size)?;
+        Some((user_creature_choice, hand_contents))
     }
     // }}}
 }
