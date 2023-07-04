@@ -6,15 +6,8 @@
 #![feature(const_fmt_arguments_new)]
 #![allow(dead_code)]
 
-use std::println;
-
-use game::types::{Creature, CreatureSet, Edict, EdictSet};
 use helpers::bitfield::Bitfield;
-
-use crate::{
-    cfr::decision::DecisionIndex,
-    helpers::{choose::choose, upair::decode_upair},
-};
+use std::println;
 
 mod cfr;
 mod echo;
@@ -64,14 +57,6 @@ fn main() {
 
     let c = 2;
     for i in 0..36 {
-        let (a, b) = decode_upair(i as u8).unwrap();
-        let mut bitfield = Bitfield::default();
-        bitfield.add(a);
-        bitfield.add(b);
-        println!(
-            "{:?} --- {:?}",
-            Bitfield::decode_ones(i as u16, c).unwrap(),
-            bitfield
-        );
+        println!("{:?}", Bitfield::decode_ones(i as u16, c).unwrap(),);
     }
 }

@@ -1,6 +1,9 @@
 #![allow(dead_code)]
 
-use std::fmt::{self, Display};
+use std::{
+    debug_assert,
+    fmt::{self, Display},
+};
 
 // {{{ Creature
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug, PartialOrd, Ord)]
@@ -68,7 +71,7 @@ impl Display for Edict {
 }
 
 impl Edict {
-    pub const EDICTS: [Edict; 5] =  [
+    pub const EDICTS: [Edict; 5] = [
         Edict::RileThePublic,
         Edict::DivertAttention,
         Edict::Sabotage,
@@ -93,7 +96,7 @@ use Battlefield::*;
 
 use crate::helpers::{
     bitfield::Bitfield,
-    upair::{decode_upair, encode_upair},
+    choose::choose
 };
 
 impl Battlefield {
@@ -181,19 +184,36 @@ pub struct PlayerStatusEffects(pub Bitfield);
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub struct GlobalStatusEffects(pub Bitfield);
 
+// {{{ CreatureSet
 impl CreatureSet {
+    #[inline]
     pub fn all() -> Self {
         CreatureSet(Bitfield::n_ones(11))
     }
 
+    #[inline]
     pub fn others(&self) -> Self {
         CreatureSet(self.0.invert_last_n(11))
     }
 
+    #[inline]
+    pub fn add(&mut self, creature: Creature) {
+        self.0.add(creature as u8)
+    }
+
+    #[inline]
     pub fn has(&self, creature: Creature) -> bool {
         self.0.has(creature as u8)
     }
 
+    #[inline]
+    pub fn len(&self) -> u8 {
+        let result = self.0.len();
+        debug_assert!(result <= 11); // Sanity checks
+        result
+    }
+
+    #[inline]
     pub fn count_from_end(&self, target: Creature) -> CreatureIndex {
         assert!(
             self.has(target),
@@ -206,28 +226,66 @@ impl CreatureSet {
         CreatureIndex(self.0.count_from_end(target as u8))
     }
 
+    #[inline]
     pub fn lookup_from_end(&self, index: CreatureIndex) -> Option<Creature> {
         self.0
             .lookup_from_end(index.0)
             .map(|x| Creature::CREATURES[x])
     }
+
+    #[inline]
+    pub fn encode_relative_to(&self, other: Self) -> Self {
+        Self(self.0.encode_relative_to(other.0))
+    }
+
+    #[inline]
+    pub fn decode_relative_to(&self, other: CreatureSet) -> Option<Self> {
+        Some(Self(self.0.decode_relative_to(other.0)?))
+    }
+
+    #[inline]
+    pub fn encode_ones(&self) -> u16 {
+        self.0.encode_ones()
+    }
+
+    #[inline]
+    pub fn decode_ones(encoded: u16, ones: usize) -> Option<Self> {
+        Some(Self(Bitfield::decode_ones(encoded, ones)?))
+    }
+
+    /// Computes the number of hands of a given size with cards from the current set.
+    #[inline]
+    pub fn hands_of_size(&self, size: usize) -> usize {
+        choose(self.len() as usize, size)
+    }
 }
 
+impl Default for CreatureSet {
+    fn default() -> Self {
+        Self(Bitfield::default())
+    }
+}
+// }}}
+// {{{ EdictSet
 impl EdictSet {
+    #[inline]
     pub fn all() -> Self {
         EdictSet(Bitfield::n_ones(5))
     }
 
+    #[inline]
     pub fn has(&self, edict: Edict) -> bool {
         self.0.has(edict as u8)
     }
 
+    #[inline]
     pub fn len(&self) -> u8 {
         let result = self.0.len();
-        assert!(result <= 11); // Sanity checks
+        debug_assert!(result <= 5); // Sanity checks
         result
     }
 
+    #[inline]
     pub fn count_from_end(&self, target: Edict) -> EdictIndex {
         assert!(
             self.has(target),
@@ -240,22 +298,27 @@ impl EdictSet {
         EdictIndex(self.0.count_from_end(target as u8))
     }
 
+    #[inline]
     pub fn lookup_from_end(&self, index: EdictIndex) -> Option<Edict> {
         self.0.lookup_from_end(index.0).map(|x| Edict::EDICTS[x])
     }
 }
-
+// }}}
+// {{{ PlayerstatusEffects
 impl PlayerStatusEffects {
+    #[inline]
     pub fn new() -> Self {
         PlayerStatusEffects(Bitfield::default())
     }
 
+    #[inline]
     pub fn all() -> Self {
         PlayerStatusEffects(Bitfield::n_ones(
             PlayerStatusEffect::PLAYER_STATUS_EFFECTS.len() as u8,
         ))
     }
 
+    #[inline]
     pub fn has(&self, effect: PlayerStatusEffect) -> bool {
         self.0.has(effect as u8)
     }
@@ -277,27 +340,70 @@ pub struct EdictIndex(pub u8);
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct CreatureIndex(pub u8);
 
-/// Either a single index or a pair of them into a creature set,
-/// where the order does not matter.
+// {{{ UserCreatureChoice
+/// User facing version of `CreatureChoice`.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct UserCreatureChoice(pub Creature, pub Option<Creature>);
+
+impl UserCreatureChoice {
+    /// The number of cards chosen by the user (either `1` or `2`).
+    #[inline]
+    pub fn len(&self) -> usize {
+        if self.1.is_some() {
+            2
+        } else {
+            1
+        }
+    }
+}
+// }}}
+// {{{ CreatureChoice
+/// Encoded version of `UserCreatureChoice`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct CreatureChoice(pub u8);
 
 impl CreatureChoice {
-    pub fn encode_one(index: CreatureIndex) -> Self {
-        CreatureChoice(index.0)
+    /// Encode a one/two creature choice into a single integer, removing any info
+    /// about the number of chosen creatures and the contents of the graveyard from the
+    /// resulting integer.
+    pub fn encode_user_choice(user_choice: UserCreatureChoice, graveyard: CreatureSet) -> Self {
+        let mut bitfield = CreatureSet::default();
+        bitfield.add(user_choice.0);
+
+        if let Some(second) = user_choice.1 {
+            bitfield.add(second);
+        }
+
+        Self(
+            bitfield
+                .encode_relative_to(graveyard.others())
+                .encode_ones() as u8,
+        )
     }
 
-    pub fn encode_two(first: CreatureIndex, second: CreatureIndex) -> Option<Self> {
-        encode_upair((first.0, second.0)).map(CreatureChoice)
-    }
+    /// Inverse of `encode_user_choice`.
+    pub fn decode_user_choice(
+        self,
+        seer_is_active: bool,
+        graveyard: CreatureSet,
+    ) -> Option<UserCreatureChoice> {
+        let length = if seer_is_active { 2 } else { 1 };
+        let encoded = self.0 as u16;
+        let decoded =
+            CreatureSet::decode_ones(encoded, length)?.decode_relative_to(graveyard.others())?;
 
-    pub fn decode_one(self) -> CreatureIndex {
-        CreatureIndex(self.0)
-    }
+        let mut creatures = Creature::CREATURES
+            .iter()
+            .filter(|i| decoded.has(**i));
 
-    pub fn decode_two(self) -> Option<(CreatureIndex, CreatureIndex)> {
-        let (a, b) = decode_upair(self.0)?;
-        Some((CreatureIndex(a), CreatureIndex(b)))
+        let first = *creatures.next()?;
+        if seer_is_active {
+            let second = *creatures.next()?;
+            Some(UserCreatureChoice(first, Some(second)))
+        } else {
+            Some(UserCreatureChoice(first, None))
+        }
     }
 }
+// }}}
 // }}}

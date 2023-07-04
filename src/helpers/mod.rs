@@ -4,7 +4,6 @@ pub mod choose;
 pub mod swap;
 pub mod bitfield;
 pub mod ranged;
-pub mod upair;
 
 pub const VEC_SIZE: usize = 4;
 

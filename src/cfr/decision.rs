@@ -1,17 +1,16 @@
 #![allow(dead_code)]
 
 use crate::{
-    game::types::{CreatureChoice, CreatureSet, Edict, EdictIndex, EdictSet, Player},
-    helpers::{ranged::MixRanged, upair::encode_upair},
+    game::types::{
+        CreatureChoice, CreatureSet, Edict, EdictIndex, EdictSet, Player, UserCreatureChoice,
+    },
+    helpers::ranged::MixRanged,
 };
 
 use bumpalo::Bump;
 use rand::Rng;
 
-use crate::{
-    game::types::Creature,
-    helpers::{normalize_vec, roulette, swap::Pair},
-};
+use crate::helpers::{normalize_vec, roulette, swap::Pair};
 
 // {{{ Helper types
 /// Utility is the quantity players attempt to maximize.
@@ -29,25 +28,15 @@ impl DecisionIndex {
     // {{{ Main phase
     /// Encodes a main phase user choice into a decision index.
     pub fn encode_main_phase_index_user(
-        creatures: (Creature, Option<Creature>),
+        creatures: UserCreatureChoice,
         edict: Edict,
         edicts: EdictSet,
         graveyard: CreatureSet,
     ) -> Option<DecisionIndex> {
-        let edict = edicts.count_from_end(edict);
-        let creature_set = graveyard.others();
-        let first_creature_index = creature_set.count_from_end(creatures.0);
-        let creatures = match creatures.1 {
-            Some(second_creature) => {
-                let second_creature_index = creature_set.count_from_end(second_creature);
-                CreatureChoice::encode_two(first_creature_index, second_creature_index)?
-            }
-            None => CreatureChoice::encode_one(first_creature_index),
-        };
-
+        let creature_choice = CreatureChoice::encode_user_choice(creatures, graveyard);
         Some(Self::encode_main_phase_index(
-            creatures,
-            edict,
+            creature_choice,
+            edicts.count_from_end(edict),
             edicts.len(),
         ))
     }
@@ -73,21 +62,12 @@ impl DecisionIndex {
         edicts: EdictSet,
         graveyard: CreatureSet,
         seer_active: bool,
-    ) -> Option<(Creature, Option<Creature>, Edict)> {
+    ) -> Option<(UserCreatureChoice, Edict)> {
         let (creature_choice, edict_index) = self.decode_main_phase_index(edicts.len());
         let edict = edicts.lookup_from_end(edict_index)?;
-        let creature_set = graveyard.others();
-        if seer_active {
-            let (creature_one, creature_two) = creature_choice.decode_two()?;
-            Some((
-                creature_set.lookup_from_end(creature_one)?,
-                Some(creature_set.lookup_from_end(creature_two)?),
-                edict,
-            ))
-        } else {
-            let creature_index = creature_choice.decode_one();
-            Some((creature_set.lookup_from_end(creature_index)?, None, edict))
-        }
+        let user_creature_choice = creature_choice.decode_user_choice(seer_active, graveyard)?;
+
+        Some((user_creature_choice, edict))
     }
     // }}}
 }
@@ -95,10 +75,12 @@ impl DecisionIndex {
 // {{{ Tests
 #[cfg(test)]
 mod decision_vector_tests {
+    use crate::game::types::Creature;
+
     use super::*;
     // {{{ Main phase
     #[test]
-    fn encode_decode_main_inverses_seer() {
+    fn decision_encode_decode_main_inverses_seer() {
         for creature_choice in 0..100 {
             for edicts_len in 1..5 {
                 for edict in 0..edicts_len {
@@ -130,7 +112,7 @@ mod decision_vector_tests {
 
         for creature_one in Creature::CREATURES {
             for creature_two in Creature::CREATURES {
-                if creature_one <= creature_two
+                if creature_one >= creature_two
                     || graveyard.has(creature_one)
                     || graveyard.has(creature_two)
                 {
@@ -143,7 +125,7 @@ mod decision_vector_tests {
                     };
 
                     let encoded = DecisionIndex::encode_main_phase_index_user(
-                        (creature_one, Some(creature_two)),
+                        UserCreatureChoice(creature_one, Some(creature_two)),
                         edict,
                         edicts,
                         graveyard,
@@ -155,7 +137,7 @@ mod decision_vector_tests {
 
                     assert_eq!(
                         decoded,
-                        Some((creature_one, Some(creature_two), edict)),
+                        Some((UserCreatureChoice(creature_one, Some(creature_two)), edict)),
                         "The edicts are {:?}, and the current one is {:?} (represented as {}).
                         ",
                         edicts,
@@ -273,21 +255,65 @@ impl<'a> DecisionVector<'a> {
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
 pub struct HiddenIndex(pub usize);
 
-pub type HandContentIndex = usize;
+pub type HandContentIndex = u16;
 
 impl HiddenIndex {
-    pub fn encode_hand_contents(hand: CreatureSet, graveyard: CreatureSet) -> Option<HandContentIndex> {
-        let creature_set = graveyard.others();
-
-        for creature in Creature::CREATURES {
-            if creature_set.has(creature) {
-                let creature_index = creature_set.count_from_end(creature);
-            }
-        }
-
-        // return result.map(|u| u as usize);
-        return todo!("wut");
+    // {{{ Hand contents
+    /// Encode the contents of the hand in a single integer.
+    /// Removes any information regarding hand size and
+    /// graveyard content from the resulting integer.
+    pub fn encode_hand_contents(hand: CreatureSet, graveyard: CreatureSet) -> HandContentIndex {
+        let possibilities = graveyard.others();
+        hand.encode_relative_to(possibilities).0.encode_ones()
     }
+
+    /// Inverse of `encode_hand_contents`.
+    pub fn decode_hand_contents(
+        index: HandContentIndex,
+        graveyard: CreatureSet,
+        hand_size: usize,
+    ) -> Option<CreatureSet> {
+        let possibilities = graveyard.others();
+
+        CreatureSet::decode_ones(index, hand_size)?.decode_relative_to(possibilities)
+    }
+    // }}}
+    // {{{ Main phase
+    /// Encodes all hidden informations known by a player during the main phase.
+    #[inline]
+    pub fn encode_main_index(hand: CreatureSet, graveyard: CreatureSet) -> Self {
+        Self(Self::encode_hand_contents(hand, graveyard) as usize)
+    }
+
+    /// Inverse of `encode_main_index`.
+    #[inline]
+    pub fn decode_main_index(
+        self,
+        graveyard: CreatureSet,
+        hand_size: usize,
+    ) -> Option<CreatureSet> {
+        Self::decode_hand_contents(self.0 as u16, graveyard, hand_size)
+    }
+    // }}}
+    // {{{ Sabotage phase
+    /// Encodes all hidden informations known by a player during the main phase.
+    #[inline]
+    pub fn encode_sabotage_index(
+        user_creature_choice: UserCreatureChoice,
+        hand: CreatureSet,
+        graveyard: CreatureSet,
+    ) -> Self {
+        let possibilites = graveyard.others();
+        let hand_contents = Self::encode_hand_contents(hand, graveyard) as usize;
+        let encoded_choice = CreatureChoice::encode_user_choice(user_creature_choice, graveyard);
+        let encoded = hand_contents.mix_ranged(
+            encoded_choice.0 as usize,
+            possibilites.hands_of_size(user_creature_choice.len()),
+        );
+
+        Self(encoded)
+    }
+    // }}}
 }
 // }}}
 // {{{ Decision matrix

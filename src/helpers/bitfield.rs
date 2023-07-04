@@ -197,7 +197,7 @@ impl Bitfield {
     /// Properties:
     /// - the empty bitfield acts as a left zero elements
     /// - the full bitfield acts as a right identity
-    pub fn encode_relative_to(&self, other: Bitfield) -> Self {
+    pub fn encode_relative_to(&self, other: Self) -> Self {
         let mut result = Bitfield::default();
 
         for i in 0..16 {
@@ -217,24 +217,16 @@ impl Bitfield {
     }
 
     /// Inverse of `encode_relative_to`.
-    pub fn decode_relative_to(&self, other: Bitfield) -> Self {
+    pub fn decode_relative_to(&self, other: Bitfield) -> Option<Self> {
         let mut result = Bitfield::default();
 
-        assert!(
-            self.0 & !((1 << other.len()) - 1) == 0,
-            "Too many bits are populated in {:?}. Expected at most {:?}.len() = {}",
-            self,
-            other,
-            other.len()
-        );
-
         for i in 0..16 {
-            if other.has(i) && self.has(other.count_from_end(i)) {
-                result.add(i);
+            if self.has(i) {
+                result.add(other.lookup_from_end(i)? as u8);
             }
         }
 
-        result
+        Some(result)
     }
 }
 // }}}
@@ -569,7 +561,7 @@ mod tests {
     fn decode_relative_to_examples() {
         assert_eq!(
             Bitfield::new(0b1010).decode_relative_to(Bitfield::new(0b101011)),
-            Bitfield::new(0b100010)
+            Some(Bitfield::new(0b100010))
         );
     }
 
@@ -582,7 +574,7 @@ mod tests {
                 let bitfield = Bitfield::new(j);
                 assert_eq!(
                     bitfield.encode_relative_to(other).decode_relative_to(other),
-                    bitfield
+                    Some(bitfield)
                 );
             }
         }
@@ -598,8 +590,8 @@ mod tests {
                 let j = j & ((1 << other.len()) - 1);
                 let bitfield = Bitfield::new(j);
                 assert_eq!(
-                    bitfield.decode_relative_to(other).encode_relative_to(other),
-                    bitfield
+                    bitfield.decode_relative_to(other).map(|d| d.encode_relative_to(other)),
+                    Some(bitfield)
                 );
             }
         }
