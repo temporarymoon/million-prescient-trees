@@ -371,7 +371,7 @@ impl CreatureChoice {
     /// Encode a one/two creature choice into a single integer, removing any info
     /// about the number of chosen creatures and the contents of the graveyard from the
     /// resulting integer.
-    pub fn encode_user_choice(user_choice: UserCreatureChoice, graveyard: CreatureSet) -> Self {
+    pub fn encode_user_choice(user_choice: UserCreatureChoice, possibilities: CreatureSet) -> Self {
         let mut bitfield = CreatureSet::default();
         bitfield.add(user_choice.0);
 
@@ -381,7 +381,7 @@ impl CreatureChoice {
 
         Self(
             bitfield
-                .encode_relative_to(graveyard.others())
+                .encode_relative_to(possibilities)
                 .encode_ones() as u8,
         )
     }
@@ -389,13 +389,13 @@ impl CreatureChoice {
     /// Inverse of `encode_user_choice`.
     pub fn decode_user_choice(
         self,
+        possibilities: CreatureSet,
         seer_active: bool,
-        graveyard: CreatureSet,
     ) -> Option<UserCreatureChoice> {
         let length = UserCreatureChoice::len_from_status(seer_active);
         let encoded = self.0 as u16;
         let decoded =
-            CreatureSet::decode_ones(encoded, length)?.decode_relative_to(graveyard.others())?;
+            CreatureSet::decode_ones(encoded, length)?.decode_relative_to(possibilities)?;
 
         let mut creatures = Creature::CREATURES.iter().filter(|i| decoded.has(**i));
 
