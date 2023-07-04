@@ -15,6 +15,14 @@ impl Bitfield {
         Bitfield(x)
     }
 
+    /// Construct a bitfield containing a single bit.
+    #[inline]
+    pub fn singleton<T: Into<u8>>(x: T) -> Self {
+        let u = x.into();
+        assert!(u <= 16);
+        Bitfield(1 << u)
+    }
+
     /// Returns a bitfield with a given amount of ones at the end.
     ///
     /// # Examples
@@ -372,6 +380,18 @@ impl fmt::Debug for Bitfield {
 
 impl Into<u64> for Bitfield {
     fn into(self) -> u64 {
+        return self.0.into();
+    }
+}
+
+impl Into<u32> for Bitfield {
+    fn into(self) -> u32 {
+        return self.0.into();
+    }
+}
+
+impl Into<usize> for Bitfield {
+    fn into(self) -> usize {
         return self.0.into();
     }
 }

@@ -184,6 +184,11 @@ pub struct GlobalStatusEffects(pub Bitfield);
 // {{{ CreatureSet
 impl CreatureSet {
     #[inline]
+    pub fn singleton(creature: Creature) -> Self {
+        CreatureSet(Bitfield::singleton(creature as u8))
+    }
+
+    #[inline]
     pub fn all() -> Self {
         CreatureSet(Bitfield::n_ones(11))
     }
@@ -254,6 +259,11 @@ impl CreatureSet {
     #[inline]
     pub fn hands_of_size(&self, size: usize) -> usize {
         choose(self.len() as usize, size)
+    }
+
+    #[inline]
+    pub fn union(&self, other: &Self) -> Self {
+        Self(self.0.union(&other.0))
     }
 }
 
@@ -353,12 +363,26 @@ impl UserCreatureChoice {
         }
     }
 
-
     /// Returns the length of some user creature choice based
     /// on whether the seer status effect is active or not.
     #[inline]
     pub fn len_from_status(seer_active: bool) -> usize {
-        if seer_active { 2 } else { 1 }
+        if seer_active {
+            2
+        } else {
+            1
+        }
+    }
+
+    pub fn as_creature_set(self) -> CreatureSet {
+        let mut bitfield = CreatureSet::default();
+        bitfield.add(self.0);
+
+        if let Some(second) = self.1 {
+            bitfield.add(second);
+        }
+
+        bitfield
     }
 }
 // }}}
@@ -372,18 +396,9 @@ impl CreatureChoice {
     /// about the number of chosen creatures and the contents of the graveyard from the
     /// resulting integer.
     pub fn encode_user_choice(user_choice: UserCreatureChoice, possibilities: CreatureSet) -> Self {
-        let mut bitfield = CreatureSet::default();
-        bitfield.add(user_choice.0);
-
-        if let Some(second) = user_choice.1 {
-            bitfield.add(second);
-        }
-
         Self(
-            bitfield
-                .encode_relative_to(possibilities)
-                .encode_ones() as u8,
-        )
+user_choice.as_creature_set()
+            .encode_relative_to(possibilities).encode_ones() as u8)
     }
 
     /// Inverse of `encode_user_choice`.

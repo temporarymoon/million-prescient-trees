@@ -2,7 +2,8 @@
 
 use crate::{
     game::types::{
-        CreatureChoice, CreatureSet, Edict, EdictIndex, EdictSet, Player, UserCreatureChoice,
+        Creature, CreatureChoice, CreatureSet, Edict, EdictIndex, EdictSet, Player,
+        UserCreatureChoice,
     },
     helpers::ranged::MixRanged,
 };
@@ -71,6 +72,53 @@ impl DecisionIndex {
     }
     // }}}
     // {{{ Sabotage phase
+    /// Computes a bitfield of all the allowed choices for a sabotage guess.
+    /// We only guess things which are:
+    /// - not in our hand
+    /// - not in the graveyard
+    /// - not cards we've just played
+    fn sabotage_decision_possibilities(
+        hand: CreatureSet,
+        choice: UserCreatureChoice,
+        graveyard: CreatureSet,
+    ) -> CreatureSet {
+        hand.union(&graveyard)
+            .union(&choice.as_creature_set())
+            .others()
+    }
+
+    /// Encodes a decision we can take during the sabotage phase.
+    /// Assumes we know the hidden information of the current player.
+    pub fn encode_sabotage_index(
+        guess: Creature,
+        hand: CreatureSet,
+        choice: UserCreatureChoice,
+        graveyard: CreatureSet,
+    ) -> Self {
+        let possibilities = Self::sabotage_decision_possibilities(hand, choice, graveyard);
+        Self(
+            CreatureSet::singleton(guess)
+                .encode_relative_to(possibilities)
+                .encode_ones() as usize,
+        )
+    }
+
+    /// Inverse of `encode_sabotage_index`.
+    pub fn decode_sabotage_index(
+        self,
+        hand: CreatureSet,
+        choice: UserCreatureChoice,
+        graveyard: CreatureSet,
+    ) -> Option<Creature> {
+        let possibilities = Self::sabotage_decision_possibilities(hand, choice, graveyard);
+
+        let decoded: usize = CreatureSet::decode_ones(self.0 as u16, 1)?
+            .decode_relative_to(possibilities)?
+            .0
+            .into();
+
+        Some(Creature::CREATURES[decoded])
+    }
     // }}}
 }
 
@@ -327,7 +375,8 @@ impl HiddenIndex {
         let (hand_contents, encoded_choice) = self.0.unmix_ranged(max);
         let user_creature_choice =
             CreatureChoice(encoded_choice as u8).decode_user_choice(possibilites, seer_active)?;
-        let hand_contents = Self::decode_hand_contents(hand_contents as u16, possibilites, hand_size)?;
+        let hand_contents =
+            Self::decode_hand_contents(hand_contents as u16, possibilites, hand_size)?;
         Some((user_creature_choice, hand_contents))
     }
     // }}}
