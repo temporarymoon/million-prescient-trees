@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use crate::{
     game::types::{Creature, CreatureChoice, CreatureSet, Edict, EdictSet, UserCreatureChoice},
     helpers::ranged::MixRanged,
@@ -84,11 +82,35 @@ impl DecisionIndex {
             .next()
     }
     // }}}
+    // {{{ Seer phase
+    /// Encodes a decision we can take during the seer phase.
+    /// Assumes we know the hidden information of the current player.
+    pub fn encode_seer_index(played_cards: (Creature, Creature), choice: Creature) -> Option<Self> {
+        if choice == played_cards.0 {
+            Some(Self(0))
+        } else if choice == played_cards.1 {
+            Some(Self(1))
+        } else {
+            None
+        }
+    }
+
+    /// Inverse of `encode_seer_index`.
+    pub fn decode_seer_index(self, played_cards: (Creature, Creature)) -> Option<Creature> {
+        if self.0 == 0 {
+            Some(played_cards.0)
+        } else if self.0 == 1 {
+            Some(played_cards.1)
+        } else {
+            None
+        }
+    }
+    // }}}
 }
 
 // {{{ Tests
 #[cfg(test)]
-mod decision_index_tests {
+mod tests {
     use std::assert_eq;
 
     use super::*;
@@ -169,6 +191,34 @@ mod decision_index_tests {
                     .decode_sabotage_index(hand, choice, graveyard),
                 Some(creature)
             );
+        }
+    }
+    // }}}
+    // {{{ Seer phase
+    #[test]
+    fn encode_decode_seer_inverses() {
+        for first in Creature::CREATURES {
+            for second in Creature::CREATURES {
+                if first == second {
+                    continue;
+                }
+
+                let played = (first, second);
+
+                for result in Creature::CREATURES {
+                    let expected = if result == first || result == second {
+                        Some(result)
+                    } else {
+                        None
+                    };
+
+                    assert_eq!(
+                        DecisionIndex::encode_seer_index(played, result)
+                            .and_then(|e| e.decode_seer_index(played)),
+                        expected
+                    );
+                }
+            }
         }
     }
     // }}}
