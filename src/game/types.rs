@@ -59,6 +59,7 @@ pub enum Edict {
     // Victory point edicts
     RileThePublic,
     DivertAttention,
+
     // Strength edicts
     Sabotage,
     Gambit,

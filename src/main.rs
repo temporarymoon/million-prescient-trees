@@ -9,10 +9,10 @@
 use helpers::bitfield::Bitfield;
 use std::println;
 
-mod cfr;
-mod echo;
-mod game;
 mod helpers;
+mod game;
+mod ai;
+mod cfr;
 
 fn main() {
     // let mut edicts = EdictSet::all();
