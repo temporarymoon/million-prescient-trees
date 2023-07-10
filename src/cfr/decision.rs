@@ -2,7 +2,7 @@
 
 use crate::{
     game::types::{
-        Creature, CreatureChoice, CreatureSet, Edict, EdictIndex, EdictSet, Player,
+        CreatureChoice, CreatureSet, Player,
         UserCreatureChoice,
     },
     helpers::ranged::MixRanged,
@@ -13,226 +13,14 @@ use rand::Rng;
 
 use crate::helpers::{normalize_vec, roulette, swap::Pair};
 
+use super::decision_index::DecisionIndex;
+
 // {{{ Helper types
 /// Utility is the quantity players attempt to maximize.
 pub type Utility = f32;
 
 /// Float between 0 and 1.
 pub type Probability = f32;
-// }}}
-// {{{ Decision indices
-/// Used to index decision vectors.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
-pub struct DecisionIndex(pub usize);
-
-impl DecisionIndex {
-    // {{{ Main phase
-    /// Encodes a main phase user choice into a decision index.
-    pub fn encode_main_phase_index_user(
-        creatures: UserCreatureChoice,
-        edict: Edict,
-        edicts: EdictSet,
-        hand: CreatureSet,
-    ) -> Option<DecisionIndex> {
-        let creature_choice = CreatureChoice::encode_user_choice(creatures, hand);
-        Some(Self::encode_main_phase_index(
-            creature_choice,
-            edicts.count_from_end(edict),
-            edicts.len(),
-        ))
-    }
-
-    /// Encodes a main phase "internal" choice into a decision index.
-    pub fn encode_main_phase_index(
-        creatures: CreatureChoice,
-        edict: EdictIndex,
-        edict_count: u8,
-    ) -> DecisionIndex {
-        DecisionIndex((creatures.0 as usize).mix_ranged(edict.0 as usize, edict_count as usize))
-    }
-
-    /// Decodes a main phase "internal" choice into a decision index.
-    pub fn decode_main_phase_index(self, edict_count: u8) -> (CreatureChoice, EdictIndex) {
-        let (creatures, edict) = self.0.unmix_ranged(edict_count as usize);
-        (CreatureChoice(creatures as u8), EdictIndex(edict as u8))
-    }
-
-    /// Decodes a main phase user choice into a decision index.
-    pub fn decode_main_phase_index_user(
-        self,
-        edicts: EdictSet,
-        hand: CreatureSet,
-        seer_active: bool,
-    ) -> Option<(UserCreatureChoice, Edict)> {
-        let (creature_choice, edict_index) = self.decode_main_phase_index(edicts.len());
-        let edict = edicts.lookup_from_end(edict_index)?;
-        let user_creature_choice = creature_choice.decode_user_choice(hand, seer_active)?;
-
-        Some((user_creature_choice, edict))
-    }
-    // }}}
-    // {{{ Sabotage phase
-    /// Computes a bitfield of all the allowed choices for a sabotage guess.
-    /// We only guess things which are:
-    /// - not in our hand
-    /// - not in the graveyard
-    /// - not cards we've just played
-    fn sabotage_decision_possibilities(
-        hand: CreatureSet,
-        choice: UserCreatureChoice,
-        graveyard: CreatureSet,
-    ) -> CreatureSet {
-        hand.union(&graveyard)
-            .union(&choice.as_creature_set())
-            .others()
-    }
-
-    /// Encodes a decision we can take during the sabotage phase.
-    /// Assumes we know the hidden information of the current player.
-    pub fn encode_sabotage_index(
-        guess: Creature,
-        hand: CreatureSet,
-        choice: UserCreatureChoice,
-        graveyard: CreatureSet,
-    ) -> Self {
-        let possibilities = Self::sabotage_decision_possibilities(hand, choice, graveyard);
-        Self(
-            CreatureSet::singleton(guess)
-                .encode_relative_to(possibilities)
-                .encode_ones() as usize,
-        )
-    }
-
-    /// Inverse of `encode_sabotage_index`.
-    pub fn decode_sabotage_index(
-        self,
-        hand: CreatureSet,
-        choice: UserCreatureChoice,
-        graveyard: CreatureSet,
-    ) -> Option<Creature> {
-        let possibilities = Self::sabotage_decision_possibilities(hand, choice, graveyard);
-
-        let decoded = CreatureSet::decode_ones(self.0 as u16, 1)?
-            .decode_relative_to(possibilities)?
-            .into_iter().next()? as usize;
-
-        Some(Creature::CREATURES[decoded])
-    }
-    // }}}
-}
-
-// {{{ Tests
-#[cfg(test)]
-mod decision_index_tests {
-    use std::assert_eq;
-
-    use super::*;
-    use crate::game::types::Creature;
-
-    // {{{ Main phase
-    #[test]
-    fn decision_encode_decode_main_inverses_seer() {
-        for creature_choice in 0..100 {
-            for edicts_len in 1..5 {
-                for edict in 0..edicts_len {
-                    let encoded = DecisionIndex::encode_main_phase_index(
-                        CreatureChoice(creature_choice),
-                        EdictIndex(edict),
-                        edicts_len,
-                    );
-
-                    let decoded = encoded.decode_main_phase_index(edicts_len);
-
-                    assert_eq!(
-                        decoded,
-                        (CreatureChoice(creature_choice), EdictIndex(edict))
-                    );
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn encode_decode_main_user_inverses_seer() {
-        let mut edicts = EdictSet::all();
-        edicts.remove(Edict::DivertAttention);
-
-        let mut hand = CreatureSet::default();
-        hand.add(Creature::Rogue);
-        hand.add(Creature::Steward);
-        hand.add(Creature::Wall);
-        hand.add(Creature::Witch);
-
-        for creature_one in Creature::CREATURES {
-            for creature_two in Creature::CREATURES {
-                if creature_one >= creature_two
-                    || !hand.has(creature_one)
-                    || !hand.has(creature_two)
-                {
-                    continue;
-                };
-
-                for edict in Edict::EDICTS {
-                    if !edicts.has(edict) {
-                        continue;
-                    };
-
-                    let encoded = DecisionIndex::encode_main_phase_index_user(
-                        UserCreatureChoice(creature_one, Some(creature_two)),
-                        edict,
-                        edicts,
-                        hand,
-                    );
-
-                    let decoded = encoded.and_then(|encoded| {
-                        encoded.decode_main_phase_index_user(edicts, hand, true)
-                    });
-
-                    assert_eq!(
-                        decoded,
-                        Some((UserCreatureChoice(creature_one, Some(creature_two)), edict)),
-                        "The edicts are {:?}, and the current one is {:?} (represented as {}).
-                        ",
-                        edicts,
-                        edict,
-                        edict as u8
-                    );
-                }
-            }
-        }
-    }
-    // }}}
-    // {{{ Sabotage phase
-    #[test]
-    fn encode_decode_sabotage_inverses() {
-        let mut hand = CreatureSet::default();
-        hand.add(Creature::Rogue);
-        hand.add(Creature::Wall);
-
-        let mut graveyard = CreatureSet::default();
-        graveyard.add(Creature::Seer);
-        graveyard.add(Creature::Steward);
-
-        let choice = UserCreatureChoice(Creature::Witch, Some(Creature::Monarch));
-
-        for creature in Creature::CREATURES {
-            if hand.has(creature)
-                || graveyard.has(creature)
-                || choice.as_creature_set().has(creature)
-            {
-                continue;
-            };
-
-            assert_eq!(
-                DecisionIndex::encode_sabotage_index(creature, hand, choice, graveyard)
-                    .decode_sabotage_index(hand, choice, graveyard),
-                Some(creature)
-            );
-        }
-    }
-    // }}}
-}
-// }}}
 // }}}
 // {{{ Decision vector
 // {{{ Types
@@ -337,7 +125,7 @@ impl<'a> DecisionVector<'a> {
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
 pub struct HiddenIndex(pub usize);
 
-pub type HandContentIndex = u16;
+pub type HandContentIndex = usize;
 
 impl HiddenIndex {
     // {{{ Hand contents
@@ -361,7 +149,7 @@ impl HiddenIndex {
     /// Encodes all hidden informations known by a player during the main phase.
     #[inline]
     pub fn encode_main_index(hand: CreatureSet, graveyard: CreatureSet) -> Self {
-        Self(Self::encode_hand_contents(hand, graveyard.others()) as usize)
+        Self(Self::encode_hand_contents(hand, !graveyard))
     }
 
     /// Inverse of `encode_main_index`.
@@ -371,7 +159,7 @@ impl HiddenIndex {
         graveyard: CreatureSet,
         hand_size: usize,
     ) -> Option<CreatureSet> {
-        Self::decode_hand_contents(self.0 as u16, graveyard.others(), hand_size)
+        Self::decode_hand_contents(self.0, !graveyard, hand_size)
     }
     // }}}
     // {{{ Sabotage & seer phases
@@ -383,11 +171,11 @@ impl HiddenIndex {
         hand: CreatureSet,
         graveyard: CreatureSet,
     ) -> Self {
-        let possibilites = graveyard.others();
-        let hand_contents = Self::encode_hand_contents(hand, possibilites) as usize;
+        let possibilites = !graveyard;
+        let hand_contents = Self::encode_hand_contents(hand, possibilites);
         let encoded_choice = CreatureChoice::encode_user_choice(user_creature_choice, possibilites);
         let max = possibilites.hands_of_size(user_creature_choice.len());
-        let encoded = hand_contents.mix_ranged(encoded_choice.0 as usize, max);
+        let encoded = hand_contents.mix_ranged(encoded_choice.0, max);
 
         Self(encoded)
     }
@@ -400,13 +188,13 @@ impl HiddenIndex {
         graveyard: CreatureSet,
         seer_active: bool,
     ) -> Option<(UserCreatureChoice, CreatureSet)> {
-        let possibilites = graveyard.others();
+        let possibilites = !graveyard;
         let max = possibilites.hands_of_size(UserCreatureChoice::len_from_status(seer_active));
         let (hand_contents, encoded_choice) = self.0.unmix_ranged(max);
         let user_creature_choice =
-            CreatureChoice(encoded_choice as u8).decode_user_choice(possibilites, seer_active)?;
+            CreatureChoice(encoded_choice).decode_user_choice(possibilites, seer_active)?;
         let hand_contents =
-            Self::decode_hand_contents(hand_contents as u16, possibilites, hand_size)?;
+            Self::decode_hand_contents(hand_contents, possibilites, hand_size)?;
         Some((user_creature_choice, hand_contents))
     }
     // }}}
@@ -436,7 +224,7 @@ mod hidden_index_tests {
 
                 assert_eq!(
                     HiddenIndex::encode_main_index(hand, graveyard)
-                        .decode_main_index(graveyard, hand.len() as usize),
+                        .decode_main_index(graveyard, hand.len()),
                     Some(hand)
                 );
             }
@@ -476,7 +264,7 @@ mod hidden_index_tests {
                                 graveyard
                             )
                             .decode_sabotage_seer_index(
-                                hand.len() as usize,
+                                hand.len(),
                                 graveyard,
                                 true
                             ),

@@ -299,7 +299,7 @@ impl FullBattleContext {
                 result += 2;
             }
             // - Barbarian
-            else if effects.has(PlayerStatusEffect::Barbarian as u8)
+            else if effects.has(PlayerStatusEffect::Barbarian as usize)
                 && self.current_creature() == Creature::Barbarian
             {
                 result += 2;
@@ -320,13 +320,13 @@ impl FullBattleContext {
 
         // Lingering effects which modify strength:
         // Effects caused by the previously played creature
-        if effects.has(PlayerStatusEffect::Bard as u8) {
+        if effects.has(PlayerStatusEffect::Bard as usize) {
             result += 1;
-        } else if effects.has(PlayerStatusEffect::Mercenary as u8) {
+        } else if effects.has(PlayerStatusEffect::Mercenary as usize) {
             result -= 1;
         }
         // Effects caused by previous battlefields
-        if effects.has(PlayerStatusEffect::Mountain as u8) {
+        if effects.has(PlayerStatusEffect::Mountain as usize) {
             result += 1;
         }
 
@@ -447,16 +447,16 @@ impl FullBattleContext {
         let mut total = self.battlefield.reward();
 
         // Global lingering effects:
-        if self.effects.0.has(GlobalStatusEffect::Night as u8) {
+        if self.effects.0.has(GlobalStatusEffect::Night as usize) {
             total += 1;
         }
 
         // Local lingering effects:
-        if effects.has(PlayerStatusEffect::Bard as u8) {
+        if effects.has(PlayerStatusEffect::Bard as usize) {
             total += 1;
         }
 
-        if effects.has(PlayerStatusEffect::Glade as u8) {
+        if effects.has(PlayerStatusEffect::Glade as usize) {
             total += 2;
         }
 
@@ -526,19 +526,19 @@ impl FullBattleContext {
                 new_game_state
                     .graveyard
                     .0
-                    .add(self.current_creature() as u8);
-                new_game_state.graveyard.0.add(self.other_creature() as u8);
+                    .add(self.current_creature() as usize);
+                new_game_state.graveyard.0.add(self.other_creature() as usize);
 
                 let p1 = &mut new_game_state.player_states.0;
                 let p2 = &mut new_game_state.player_states.1;
 
                 // Discard used creatures
-                p1.creatures.0.remove(self.current_creature() as u8);
-                p2.creatures.0.remove(self.other_creature() as u8);
+                p1.creatures.0.remove(self.current_creature() as usize);
+                p2.creatures.0.remove(self.other_creature() as usize);
 
                 // Discard used edicts
-                p1.edicts.0.remove(self.current_edict() as u8);
-                p2.edicts.0.remove(self.other_edict() as u8);
+                p1.edicts.0.remove(self.current_edict() as usize);
+                p2.edicts.0.remove(self.other_edict() as usize);
 
                 // Clear status effects
                 p1.effects.0.clear();
@@ -559,7 +559,7 @@ impl FullBattleContext {
                     new_game_state
                         .effects
                         .0
-                        .add(GlobalStatusEffect::Night as u8);
+                        .add(GlobalStatusEffect::Night as usize);
                 }
 
                 // first is winner, second is loser
@@ -573,19 +573,19 @@ impl FullBattleContext {
                     // Set up battlefield lingering effects
                     // - Glade:
                     if self.battlefield == Battlefield::Glade {
-                        winner.effects.0.add(PlayerStatusEffect::Glade as u8);
+                        winner.effects.0.add(PlayerStatusEffect::Glade as usize);
                     }
                     // - Mountain
                     if self.battlefield == Battlefield::Mountain {
-                        winner.effects.0.add(PlayerStatusEffect::Mountain as u8);
+                        winner.effects.0.add(PlayerStatusEffect::Mountain as usize);
                     }
 
                     // Set up creature lingering effects
                     // - Barbarian
                     // if this card has already been played there's no point
                     // in adding the status effect anymore
-                    if !new_game_state.graveyard.0.has(Creature::Barbarian as u8) {
-                        loser.effects.0.add(PlayerStatusEffect::Barbarian as u8)
+                    if !new_game_state.graveyard.0.has(Creature::Barbarian as usize) {
+                        loser.effects.0.add(PlayerStatusEffect::Barbarian as usize)
                     }
                 }
 
@@ -601,9 +601,9 @@ impl FullBattleContext {
                 // - Mercenary
                 for (creature, effect) in creatures {
                     if self.active_creature(creature) {
-                        p1.effects.0.add(effect as u8)
+                        p1.effects.0.add(effect as usize)
                     } else if self.flip().active_creature(creature) {
-                        p2.effects.0.add(effect as u8)
+                        p2.effects.0.add(effect as usize)
                     }
                 }
 
@@ -841,9 +841,9 @@ impl GameState {
     //     match self.phase {
     //         HiddenPhase::SabotagePhase(_, _) => {
     //             for creature in Creature::CREATURES {
-    //                 if self.graveyard.0.has(creature as u8) {
+    //                 if self.graveyard.0.has(creature as usize) {
     //                     continue;
-    //                 } else if self.player_states.0.creatures.0.has(creature as u8) {
+    //                 } else if self.player_states.0.creatures.0.has(creature as usize) {
     //                     continue;
     //                 }
     //

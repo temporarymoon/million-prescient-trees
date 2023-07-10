@@ -2,7 +2,8 @@
 
 use std::{
     debug_assert,
-    fmt::{self, Display}
+    fmt::{self, Display},
+    ops::{BitOr, Not},
 };
 
 // {{{ Creature
@@ -194,88 +195,69 @@ impl CreatureSet {
     }
 
     #[inline]
-    pub fn others(&self) -> Self {
-        CreatureSet(self.0.invert_last_n(11))
-    }
-
-    #[inline]
     pub fn add(&mut self, creature: Creature) {
-        self.0.add(creature as u8)
+        self.0.add(creature as usize)
     }
 
     #[inline]
     pub fn remove(&mut self, creature: Creature) {
-        self.0.remove(creature as u8)
+        self.0.remove(creature as usize)
     }
 
     #[inline]
-    pub fn has(&self, creature: Creature) -> bool {
-        self.0.has(creature as u8)
+    pub fn has(self, creature: Creature) -> bool {
+        self.0.has(creature as usize)
     }
 
     #[inline]
-    pub fn len(&self) -> u8 {
+    pub fn len(self) -> usize {
         let result = self.0.len();
         debug_assert!(result <= 11); // Sanity checks
         result
     }
 
     #[inline]
-    pub fn count_from_end(&self, target: Creature) -> CreatureIndex {
-        assert!(
-            self.has(target),
-            "Bitfield {:?} does not contain creature {:?} (represented as {})",
-            self.0,
-            target,
-            target as u8
-        );
-
-        CreatureIndex(self.0.count_from_end(target as u8))
+    pub fn indexof(self, target: Creature) -> CreatureIndex {
+        self.0.count_from_end(target as usize)
     }
 
     #[inline]
-    pub fn lookup_from_end(&self, index: CreatureIndex) -> Option<Creature> {
+    pub fn index(self, index: CreatureIndex) -> Option<Creature> {
         self.0
-            .lookup_from_end(index.0)
+            .lookup_from_end(index)
             .map(|x| Creature::CREATURES[x])
     }
 
     #[inline]
-    pub fn encode_relative_to(&self, other: Self) -> Self {
+    pub fn encode_relative_to(self, other: Self) -> Self {
         Self(self.0.encode_relative_to(other.0))
     }
 
     #[inline]
-    pub fn decode_relative_to(&self, other: CreatureSet) -> Option<Self> {
+    pub fn decode_relative_to(self, other: CreatureSet) -> Option<Self> {
         Some(Self(self.0.decode_relative_to(other.0)?))
     }
 
     #[inline]
-    pub fn encode_ones(&self) -> u16 {
+    pub fn encode_ones(self) -> usize {
         self.0.encode_ones()
     }
 
     #[inline]
-    pub fn decode_ones(encoded: u16, ones: usize) -> Option<Self> {
+    pub fn decode_ones(encoded: usize, ones: usize) -> Option<Self> {
         Some(Self(Bitfield::decode_ones(encoded, ones)?))
     }
 
     /// Computes the number of hands of a given size with cards from the current set.
     #[inline]
-    pub fn hands_of_size(&self, size: usize) -> usize {
+    pub fn hands_of_size(self, size: usize) -> usize {
         choose(self.len() as usize, size)
     }
-
-    #[inline]
-    pub fn union(&self, other: &Self) -> Self {
-        Self(self.0.union(&other.0))
-    }
-
 }
 
 // {{{ IntoIter
 pub struct CreatureSetIterator {
-    index: u8,
+    index: usize,
     bitfield: CreatureSet,
 }
 
@@ -308,6 +290,26 @@ impl IntoIterator for CreatureSet {
     }
 }
 // }}}
+// {{{ Bit operations
+impl BitOr for CreatureSet {
+    type Output = Self;
+
+    #[inline]
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self(self.0 | rhs.0)
+    }
+}
+
+impl Not for CreatureSet {
+    type Output = Self;
+    
+    #[inline]
+    fn not(self) -> Self {
+        CreatureSet(self.0.invert_last_n(11))
+    }
+
+}
+// }}}
 
 impl Default for CreatureSet {
     fn default() -> Self {
@@ -324,37 +326,29 @@ impl EdictSet {
 
     #[inline]
     pub fn remove(&mut self, edict: Edict) {
-        self.0.remove(edict as u8)
+        self.0.remove(edict as usize)
     }
 
     #[inline]
-    pub fn has(&self, edict: Edict) -> bool {
-        self.0.has(edict as u8)
+    pub fn has(self, edict: Edict) -> bool {
+        self.0.has(edict as usize)
     }
 
     #[inline]
-    pub fn len(&self) -> u8 {
+    pub fn len(self) -> usize {
         let result = self.0.len();
         debug_assert!(result <= 5); // Sanity checks
         result
     }
 
     #[inline]
-    pub fn count_from_end(&self, target: Edict) -> EdictIndex {
-        assert!(
-            self.has(target),
-            "Bitfield {:?} does not contain edict {:?} (represented as {})",
-            self.0,
-            target,
-            target as u8
-        );
-
-        EdictIndex(self.0.count_from_end(target as u8))
+    pub fn indexof(self, target: Edict) -> EdictIndex {
+        self.0.count_from_end(target as usize)
     }
 
     #[inline]
-    pub fn lookup_from_end(&self, index: EdictIndex) -> Option<Edict> {
-        self.0.lookup_from_end(index.0).map(|x| Edict::EDICTS[x])
+    pub fn index(self, index: EdictIndex) -> Option<Edict> {
+        self.0.lookup_from_end(index).map(|x| Edict::EDICTS[x])
     }
 }
 // }}}
@@ -368,13 +362,13 @@ impl PlayerStatusEffects {
     #[inline]
     pub fn all() -> Self {
         PlayerStatusEffects(Bitfield::n_ones(
-            PlayerStatusEffect::PLAYER_STATUS_EFFECTS.len() as u8,
+            PlayerStatusEffect::PLAYER_STATUS_EFFECTS.len(),
         ))
     }
 
     #[inline]
-    pub fn has(&self, effect: PlayerStatusEffect) -> bool {
-        self.0.has(effect as u8)
+    pub fn has(self, effect: PlayerStatusEffect) -> bool {
+        self.0.has(effect as usize)
     }
 }
 // }}}
@@ -388,12 +382,10 @@ pub enum Player {
 // }}}
 // {{{ Bitfield indices
 /// Represents an index of a bit in an edict set.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct EdictIndex(pub u8);
+pub type EdictIndex = usize;
 
 /// Represents an index of a bit in a creature set.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct CreatureIndex(pub u8);
+pub type CreatureIndex = usize;
 
 // {{{ UserCreatureChoice
 /// User facing version of `CreatureChoice`.
@@ -403,7 +395,7 @@ pub struct UserCreatureChoice(pub Creature, pub Option<Creature>);
 impl UserCreatureChoice {
     /// The number of cards chosen by the user (either `1` or `2`).
     #[inline]
-    pub fn len(&self) -> usize {
+    pub fn len(self) -> usize {
         if self.1.is_some() {
             2
         } else {
@@ -436,8 +428,10 @@ impl UserCreatureChoice {
 // }}}
 // {{{ CreatureChoice
 /// Encoded version of `UserCreatureChoice`.
+/// The result fits inside an `u8`, but we are
+/// using an `usize` for convenience.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct CreatureChoice(pub u8);
+pub struct CreatureChoice(pub usize);
 
 impl CreatureChoice {
     /// Encode a one/two creature choice into a single integer, removing any info
@@ -448,7 +442,7 @@ impl CreatureChoice {
             user_choice
                 .as_creature_set()
                 .encode_relative_to(possibilities)
-                .encode_ones() as u8,
+                .encode_ones(),
         )
     }
 
@@ -459,9 +453,8 @@ impl CreatureChoice {
         seer_active: bool,
     ) -> Option<UserCreatureChoice> {
         let length = UserCreatureChoice::len_from_status(seer_active);
-        let encoded = self.0 as u16;
         let decoded =
-            CreatureSet::decode_ones(encoded, length)?.decode_relative_to(possibilities)?;
+            CreatureSet::decode_ones(self.0, length)?.decode_relative_to(possibilities)?;
 
         let mut creatures = decoded.into_iter();
 

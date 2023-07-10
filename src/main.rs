@@ -57,7 +57,7 @@ fn main() {
 
     for c in 0..=16 {
         for i in 0.. {
-            match Bitfield::decode_ones(i as u16, c) {
+            match Bitfield::decode_ones(i, c) {
                 Some(inner) => println!("{: >2}: {: <5} {:?}", c, i, inner),
                 None => break,
             }
