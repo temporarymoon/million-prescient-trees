@@ -68,7 +68,7 @@ Each creature has a set of unique effects.
 
 ### Seer
 
-1. [-] The player is given the `seer` status effect for the next turn.
+1. The player is given the `seer` status effect for the next turn.
 
 ### Rogue
 
@@ -77,7 +77,7 @@ Each creature has a set of unique effects.
 
 ### Bard
 
-1. [-] The player is given the `bard` status effect for the next turn.
+1. The player is given the `bard` status effect for the next turn.
 
 ### Diplomat
 
@@ -106,7 +106,7 @@ Each creature has a set of unique effects.
 
 ### Mercenary
 
-1. [-] Gives the current player the `mercenary` status effect.
+1. Gives the current player the `mercenary` status effect.
 
 ### Monarch
 
