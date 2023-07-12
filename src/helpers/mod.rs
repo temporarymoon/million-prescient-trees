@@ -5,8 +5,6 @@ pub mod swap;
 pub mod bitfield;
 pub mod ranged;
 
-pub const VEC_SIZE: usize = 4;
-
 /// Normalize a vector. If all the values are zero,
 /// all the entries will be set to 1/size.
 pub fn normalize_vec(vec: &mut [f32]) {
@@ -49,9 +47,4 @@ where
         "Degenerate probability distribution {:?} — value {:?} does not fit anywhere.",
         probabilities, num
     )
-}
-
-/// Returns true if the value is very close to 0.
-pub fn is_essentially_zero(f: f32) -> bool {
-    f.abs() < 0.0000003
 }
