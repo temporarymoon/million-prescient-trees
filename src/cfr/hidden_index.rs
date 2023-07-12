@@ -1,4 +1,5 @@
 use crate::game::types::{CreatureChoice, CreatureSet, UserCreatureChoice};
+use crate::helpers::bitfield::Bitfield;
 use crate::helpers::ranged::MixRanged;
 
 /// Used to index decision matrices.
@@ -13,7 +14,7 @@ impl HiddenIndex {
     /// Removes any information regarding hand size and
     /// graveyard content from the resulting integer.
     fn encode_hand_contents(hand: CreatureSet, possibilities: CreatureSet) -> HandContentIndex {
-        hand.encode_relative_to(possibilities).0.encode_ones()
+        hand.encode_relative_to(possibilities).encode_ones()
     }
 
     /// Inverse of `encode_hand_contents`.
@@ -22,7 +23,7 @@ impl HiddenIndex {
         possibilities: CreatureSet,
         hand_size: usize,
     ) -> Option<CreatureSet> {
-        CreatureSet::decode_ones(index, hand_size)?.decode_relative_to(possibilities)
+        CreatureSet::decode_relative_to(Bitfield::decode_ones(index, hand_size)?, possibilities)
     }
     // }}}
     // {{{ Main phase

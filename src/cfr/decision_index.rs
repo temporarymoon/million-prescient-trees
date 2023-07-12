@@ -1,6 +1,6 @@
 use crate::{
     game::types::{Creature, CreatureChoice, CreatureSet, Edict, EdictSet, UserCreatureChoice},
-    helpers::ranged::MixRanged,
+    helpers::{bitfield::Bitfield, ranged::MixRanged},
 };
 
 /// Used to index decision vectors.
@@ -76,8 +76,7 @@ impl DecisionIndex {
     ) -> Option<Creature> {
         let possibilities = Self::sabotage_decision_possibilities(hand, choice, graveyard);
 
-        CreatureSet::decode_ones(self.0, 1)?
-            .decode_relative_to(possibilities)?
+        CreatureSet::decode_relative_to(Bitfield::decode_ones(self.0, 1)?, possibilities)?
             .into_iter()
             .next()
     }

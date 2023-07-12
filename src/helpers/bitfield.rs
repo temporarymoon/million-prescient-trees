@@ -127,18 +127,7 @@ impl Bitfield {
     /// len(0b101011) // 4
     /// ```
     pub const fn len(self) -> usize {
-        let mut result = 0;
-        let mut copy = self.0;
-
-        while copy != 0 {
-            if copy & 1 != 0 {
-                result += 1;
-            }
-
-            copy >>= 1;
-        }
-
-        result
+        self.0.count_ones() as usize
     }
 
     /// Return the number of ones between a given index and the end.
@@ -155,7 +144,7 @@ impl Bitfield {
     /// count_from_end(0b0111, 2) // 2
     /// ```
     pub fn count_from_end(self, target: usize) -> usize {
-        (0..16).take(target).filter(|x| self.has(*x)).count()
+        (self.0 & ((1 << target) - 1)).count_ones() as usize
     }
 
     /// Returns the position (starting from the end) of the nth bit.

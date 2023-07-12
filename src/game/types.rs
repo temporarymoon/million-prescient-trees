@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::{
     debug_assert,
     fmt::{self, Display},
@@ -166,12 +164,6 @@ impl Display for PlayerStatusEffect {
         write!(f, "{:?}", self)
     }
 }
-
-// Lingering effects affecting both players
-#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
-pub enum GlobalStatusEffect {
-    Night,
-}
 // }}}
 // {{{ Bitfields
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
@@ -180,8 +172,6 @@ pub struct CreatureSet(pub Bitfield);
 pub struct EdictSet(pub Bitfield);
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub struct PlayerStatusEffects(pub Bitfield);
-#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
-pub struct GlobalStatusEffects(pub Bitfield);
 
 // {{{ CreatureSet
 impl CreatureSet {
@@ -230,23 +220,13 @@ impl CreatureSet {
     }
 
     #[inline]
-    pub fn encode_relative_to(self, other: Self) -> Self {
-        Self(self.0.encode_relative_to(other.0))
+    pub fn encode_relative_to(self, other: Self) -> Bitfield {
+        self.0.encode_relative_to(other.0)
     }
 
     #[inline]
-    pub fn decode_relative_to(self, other: CreatureSet) -> Option<Self> {
-        Some(Self(self.0.decode_relative_to(other.0)?))
-    }
-
-    #[inline]
-    pub fn encode_ones(self) -> usize {
-        self.0.encode_ones()
-    }
-
-    #[inline]
-    pub fn decode_ones(encoded: usize, ones: usize) -> Option<Self> {
-        Some(Self(Bitfield::decode_ones(encoded, ones)?))
+    pub fn decode_relative_to(bitfield: Bitfield, other: CreatureSet) -> Option<Self> {
+        Some(Self(bitfield.decode_relative_to(other.0)?))
     }
 
     /// Computes the number of hands of a given size with cards from the current set.
@@ -303,12 +283,11 @@ impl BitOr for CreatureSet {
 
 impl Not for CreatureSet {
     type Output = Self;
-    
+
     #[inline]
     fn not(self) -> Self {
         CreatureSet(self.0.invert_last_n(11))
     }
-
 }
 // }}}
 
@@ -353,7 +332,7 @@ impl EdictSet {
     }
 }
 // }}}
-// {{{ PlayerstatusEffects
+// {{{ PlayerStatusEffects
 impl PlayerStatusEffects {
     #[inline]
     pub fn new() -> Self {
@@ -374,11 +353,36 @@ impl PlayerStatusEffects {
 }
 // }}}
 // {{{ Players
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Player {
     Me,  // Current player
     You, // Opponent
 }
+
+impl Not for Player {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        match self {
+            Player::Me => Player::You,
+            Player::You => Player::Me,
+        }
+    }
+}
+
+impl Player {
+    /// Index a pair by a player,
+    /// where the first and second elements represents the data
+    /// for the current and other players respectively.
+    #[inline]
+    pub fn select<T>(self, pair: (T, T)) -> T {
+        match self {
+            Player::Me => pair.1,
+            Player::You => pair.0,
+        }
+    }
+}
+
 // }}}
 // }}}
 // {{{ Bitfield indices
@@ -455,7 +459,7 @@ impl CreatureChoice {
     ) -> Option<UserCreatureChoice> {
         let length = UserCreatureChoice::len_from_status(seer_active);
         let decoded =
-            CreatureSet::decode_ones(self.0, length)?.decode_relative_to(possibilities)?;
+            CreatureSet::decode_relative_to(Bitfield::decode_ones(self.0, length)?, possibilities)?;
 
         let mut creatures = decoded.into_iter();
 
