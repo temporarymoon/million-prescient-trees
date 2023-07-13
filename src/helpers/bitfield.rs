@@ -1,6 +1,6 @@
 use const_for::const_for;
 use core::fmt;
-use std::ops::{BitOr, Not};
+use std::ops::{BitOr, Not, BitAnd};
 
 /// Bitfield containing up to 16 bits.
 /// Internally used to implement stuff like creature sets,
@@ -402,6 +402,22 @@ impl BitOr for Bitfield {
         Bitfield(self.0 | rhs.0)
     }
 }
+
+impl BitAnd for Bitfield {
+    type Output = Self;
+
+    /// Returns the common bits between two bitfields
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// 0b0111 & 0b1010 // 0x0010
+    /// ```
+    #[inline]
+    fn bitand(self, rhs: Self) -> Self::Output {
+        Bitfield(self.0 & rhs.0)
+    }
+}
 // }}}
 // {{{ BitfieldIterator
 pub struct BitfieldIterator {
@@ -617,6 +633,14 @@ mod tests {
         for i in 0..=u16::MAX {
             let bitfield = Bitfield::new(i);
             assert_eq!(bitfield | !bitfield, Bitfield::all())
+        }
+    }
+
+    #[test]
+    fn union_with_inverse_is_zero() {
+        for i in 0..=u16::MAX {
+            let bitfield = Bitfield::new(i);
+            assert_eq!(bitfield & !bitfield, Bitfield::default())
         }
     }
 

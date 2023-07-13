@@ -1,8 +1,14 @@
+use std::debug_assert_eq;
+
 use crate::game::types::{CreatureChoice, CreatureSet, UserCreatureChoice};
 use crate::helpers::bitfield::Bitfield;
 use crate::helpers::ranged::MixRanged;
 
-/// Used to index decision matrices.
+/// Encodes all hidden information known by a player.
+///
+/// *Important semantics*:
+/// - the creature choice must not be in the hand during the sabotage/seer phase
+/// - revealing a creature instantly adds it to the graveyard as well.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
 pub struct HiddenIndex(pub usize);
 
@@ -44,6 +50,34 @@ impl HiddenIndex {
     }
     // }}}
     // {{{ Sabotage & seer phases
+    /// Makes sure the given/decoded data regarding the sabotage/seer phase is valid.
+    #[inline(always)]
+    fn assure_valid_sabotage_seer_data(
+        user_creature_choice: UserCreatureChoice,
+        hand: CreatureSet,
+        graveyard: CreatureSet,
+    ) {
+        let choice = user_creature_choice.as_creature_set();
+
+        debug_assert_eq!(
+            hand & graveyard,
+            Default::default(),
+            "The hand cannot conain cards from the graveyard"
+        );
+
+        debug_assert_eq!(
+            hand & choice,
+            Default::default(),
+            "The chosen creatures must no longer be in the hand"
+        );
+
+        debug_assert_eq!(
+            graveyard & choice,
+            Default::default(),
+            "The chosen creatures cannot yet be in the graveyard"
+        );
+    }
+
     /// Encodes all hidden informations known by a player during the sabotage or seer phases.
     /// The only information a player learns between the two is what creature the opponent has
     /// played, but this can be encoded by simply adding said creature to the graveyard.
@@ -52,10 +86,15 @@ impl HiddenIndex {
         hand: CreatureSet,
         graveyard: CreatureSet,
     ) -> Self {
-        let possibilites = !graveyard;
-        let hand_contents = Self::encode_hand_contents(hand, possibilites);
-        let encoded_choice = CreatureChoice::encode_user_choice(user_creature_choice, possibilites);
-        let max = possibilites.hands_of_size(user_creature_choice.len());
+        let hand_possibilites = !(graveyard);
+        let choice_possibilites = !(graveyard | hand);
+
+        Self::assure_valid_sabotage_seer_data(user_creature_choice, hand, graveyard);
+
+        let hand_contents = Self::encode_hand_contents(hand, hand_possibilites);
+        let encoded_choice =
+            CreatureChoice::encode_user_choice(user_creature_choice, choice_possibilites);
+        let max = hand_possibilites.hands_of_size(user_creature_choice.len());
         let encoded = hand_contents.mix_ranged(encoded_choice.0, max);
 
         Self(encoded)
@@ -69,13 +108,19 @@ impl HiddenIndex {
         graveyard: CreatureSet,
         seer_active: bool,
     ) -> Option<(UserCreatureChoice, CreatureSet)> {
-        let possibilites = !graveyard;
-        let max = possibilites.hands_of_size(UserCreatureChoice::len_from_status(seer_active));
-        let (hand_contents, encoded_choice) = self.0.unmix_ranged(max);
+        let hand_possibilites = !(graveyard);
+
+        let max = hand_possibilites.hands_of_size(UserCreatureChoice::len_from_status(seer_active));
+        let (encoded_hand, encoded_choice) = self.0.unmix_ranged(max);
+        let hand = Self::decode_hand_contents(encoded_hand, hand_possibilites, hand_size)?;
+
+        let choice_possibilites = !(graveyard | hand);
         let user_creature_choice =
-            CreatureChoice(encoded_choice).decode_user_choice(possibilites, seer_active)?;
-        let hand_contents = Self::decode_hand_contents(hand_contents, possibilites, hand_size)?;
-        Some((user_creature_choice, hand_contents))
+            CreatureChoice(encoded_choice).decode_user_choice(choice_possibilites, seer_active)?;
+
+        Self::assure_valid_sabotage_seer_data(user_creature_choice, hand, graveyard);
+
+        Some((user_creature_choice, hand))
     }
     // }}}
 }
@@ -131,6 +176,8 @@ mod tests {
                         if creature_one >= creature_two
                             || graveyard.has(creature_one)
                             || graveyard.has(creature_two)
+                            || hand.has(creature_one)
+                            || hand.has(creature_two)
                         {
                             continue;
                         };

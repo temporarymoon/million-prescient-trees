@@ -22,11 +22,11 @@ Each battlefield has a list of creatures it offers bonuses to. Each such creatur
 
 ### Glade
 
-The winner of the current battle gets the `glade` status effect for the following turn.
+- [x] The winner of the current battle gets the `glade` status effect for the following turn.
 
 ### Mountain
 
-The winner of the current battle gets the `mountain` status effect for the following turn.
+- [x] The winner of the current battle gets the `mountain` status effect for the following turn.
 
 ### Urban
 
@@ -34,7 +34,7 @@ The winner of the current battle gets the `mountain` status effect for the follo
 
 ### Night
 
-- [x] Next battle rewards the winner an extra victory point.
+- [x] Gives both players the night status effect.
 
 ### Last strand
 
@@ -68,7 +68,7 @@ Each creature has a set of unique effects.
 
 ### Seer
 
-1. The player is given the `seer` status effect for the next turn.
+1. [x] The player is given the `seer` status effect for the next turn.
 
 ### Rogue
 
@@ -77,7 +77,7 @@ Each creature has a set of unique effects.
 
 ### Bard
 
-1. The player is given the `bard` status effect for the next turn.
+1. [x] The player is given the `bard` status effect for the next turn.
 
 ### Diplomat
 
@@ -106,7 +106,7 @@ Each creature has a set of unique effects.
 
 ### Mercenary
 
-1. Gives the current player the `mercenary` status effect.
+1. [x] Gives the current player the `mercenary` status effect.
 
 ### Monarch
 
@@ -145,7 +145,7 @@ The player can play two creatures during the main phase. During the seer phase, 
 
 ### Barbarian
 
-When losing a battle, a player gets this effect for the following turn if the `barbarian` has not yet been played.
+- [x] When losing a battle, a player gets this effect for the following turn if the `barbarian` has not yet been played.
 
 ### Mercenary
 
@@ -158,6 +158,10 @@ When losing a battle, a player gets this effect for the following turn if the `b
 ### Mountain
 
 - [x] The current creature gains `+1` strength.
+
+### Night
+
+- [x] The player gains an additional victory point by winning this battle.
 
 ## Phases
 
@@ -199,3 +203,6 @@ A quick sketch of the implementation:
 
    - if neither or both players have played a `gambit`, the battle ends in a tie
    - otherwise, the player who has played a `gambit` loses
+
+6. Compute number of victory points earned by the victor
+7. Prepare status effects for the following turn

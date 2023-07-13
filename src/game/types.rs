@@ -1,7 +1,7 @@
 use std::{
     debug_assert,
     fmt::{self, Display},
-    ops::{BitOr, Not},
+    ops::{BitOr, Not, BitAnd},
 };
 
 // {{{ Creature
@@ -132,8 +132,10 @@ pub enum PlayerStatusEffect {
     // === Effects caused by battlefields:
     // The player gains 1 strength
     Mountain,
-    // The player gains +2 points if they win this battle
+    // The player gains +2 vp if they win this battle
     Glade,
+    // The player gains +1 vp if they win this batttle
+    Night,
 
     // === Effects caused by creatures:
     // The player gets to play two creatures instead of one
@@ -166,11 +168,11 @@ impl Display for PlayerStatusEffect {
 }
 // }}}
 // {{{ Bitfields
-#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug, Default)]
 pub struct CreatureSet(pub Bitfield);
-#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug, Default)]
 pub struct EdictSet(pub Bitfield);
-#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug, Default)]
 pub struct PlayerStatusEffects(pub Bitfield);
 
 // {{{ CreatureSet
@@ -281,6 +283,15 @@ impl BitOr for CreatureSet {
     }
 }
 
+impl BitAnd for CreatureSet {
+    type Output = Self;
+
+    #[inline]
+    fn bitand(self, rhs: Self) -> Self::Output {
+        Self(self.0 & rhs.0)
+    }
+}
+
 impl Not for CreatureSet {
     type Output = Self;
 
@@ -290,12 +301,6 @@ impl Not for CreatureSet {
     }
 }
 // }}}
-
-impl Default for CreatureSet {
-    fn default() -> Self {
-        Self(Bitfield::default())
-    }
-}
 // }}}
 // {{{ EdictSet
 impl EdictSet {
@@ -335,11 +340,6 @@ impl EdictSet {
 // {{{ PlayerStatusEffects
 impl PlayerStatusEffects {
     #[inline]
-    pub fn new() -> Self {
-        PlayerStatusEffects(Bitfield::default())
-    }
-
-    #[inline]
     pub fn all() -> Self {
         PlayerStatusEffects(Bitfield::n_ones(
             PlayerStatusEffect::PLAYER_STATUS_EFFECTS.len(),
@@ -349,6 +349,17 @@ impl PlayerStatusEffects {
     #[inline]
     pub fn has(self, effect: PlayerStatusEffect) -> bool {
         self.0.has(effect as usize)
+    }
+
+    /// Sets all bits to zero.
+    #[inline]
+    pub fn clear(&mut self) {
+        self.0.clear()
+    }
+
+    #[inline]
+    pub fn add(&mut self, effect: PlayerStatusEffect) {
+        self.0.add(effect as usize)
     }
 }
 // }}}

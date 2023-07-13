@@ -1,9 +1,10 @@
-use std::ops::Not;
-
 use super::{
-    other_types::{FinalMainPhaseChoice, KnownPlayerState, SabotagePhaseChoice},
+    known_state::{KnownState, TurnResult},
+    other_types::{FinalMainPhaseChoice, SabotagePhaseChoice},
     types::{Battlefield, Creature, Edict, Player, PlayerStatusEffect, PlayerStatusEffects},
 };
+use crate::game::types::EdictSet;
+use std::{debug_assert_eq, ops::Not};
 
 // {{{ BattleResult
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -30,9 +31,7 @@ impl Not for BattleResult {
 pub struct BattleContext {
     main_choices: (FinalMainPhaseChoice, FinalMainPhaseChoice),
     sabotage_choices: (SabotagePhaseChoice, SabotagePhaseChoice),
-    player_states: (KnownPlayerState, KnownPlayerState),
-    night: bool,
-    battlefield: Battlefield,
+    state: KnownState,
 }
 
 impl BattleContext {
@@ -57,7 +56,13 @@ impl BattleContext {
     /// Returns the player effects active on some player.
     #[inline]
     fn player_effects(&self, player: Player) -> PlayerStatusEffects {
-        player.select(self.player_states).effects
+        player.select(self.state.player_states).effects
+    }
+
+    /// Returns the current battlefield
+    #[inline]
+    fn battlefield(&self) -> Battlefield {
+        self.state.battlefields.current()
     }
 
     /// Checks if the creature a player has played is negated.
@@ -87,7 +92,7 @@ impl BattleContext {
         let mut result = 1;
 
         // [[[URBAN EFFECT 1]]]
-        if self.battlefield == Battlefield::Urban {
+        if self.battlefield() == Battlefield::Urban {
             result += 1;
         }
 
@@ -103,7 +108,7 @@ impl BattleContext {
     /// is affected by the battlefield bonus.
     #[inline]
     fn battlefield_bonus(&self, player: Player) -> bool {
-        self.battlefield.bonus(self.creature(player))
+        self.battlefield().bonus(self.creature(player))
     }
 
     /// Calculates the strength modifier for the creature the current player has played
@@ -291,26 +296,23 @@ impl BattleContext {
     /// as a given player.
     fn battle_reward(&self, player: Player) -> u8 {
         let effects = self.player_effects(player);
-        let mut total = self.battlefield.reward();
+        let mut total = self.battlefield().reward();
 
-        // Global lingering effects:
+        // Lingering effects:
         // [[[NIGHT EFFECT 1]]]
-        if self.night {
+        if effects.has(PlayerStatusEffect::Night) {
             total += 1;
+        // [[[GLADE EFFECT 1]]]
+        } else if effects.has(PlayerStatusEffect::Glade) {
+            total += 2;
         }
 
-        // Local lingering effects:
         // [[[BARD EFFECT 2]]]
         if effects.has(PlayerStatusEffect::Bard) {
             total += 1;
         }
 
-        // [[[GLADE EFFECT 1]]]
-        if effects.has(PlayerStatusEffect::Glade) {
-            total += 2;
-        }
-
-        // Apply the "rile the public" and "divert attention" edict
+        // Apply the "rile the public" and "divert attention" edicts.
         // This is the only place where the total can decrease,
         // which is why we must be careful for it not to become negative.
         total = i8::max(
@@ -334,9 +336,9 @@ impl BattleContext {
         }
     }
 
-    // Calculates the delta we need to change the score by.
-    // - positive values mean we've earned points
-    // - negative values mean the opponent has gained points
+    /// Calculates the delta we need to change the score by.
+    /// - positive values mean we've earned points
+    /// - negative values mean the opponent has gained points
     fn battle_score_delta(&self, result: BattleResult, player: Player) -> i8 {
         let mut delta = match result {
             BattleResult::Tied => 0,
@@ -351,120 +353,117 @@ impl BattleContext {
         delta
     }
 
-    // pub fn advance_game_state(&self, game_state: &GameState) -> CompleteGameState {
-    //     let battle_result = self.battle_result();
-    //     // assert_eq!(battle_result, self.flip().battle_result().flip());
-    //
-    //     let score_delta = self.battle_score_delta(battle_result);
-    //     // assert_eq!(
-    //     //     score_delta,
-    //     //     -self.flip().battle_score_delta(battle_result.flip())
-    //     // );
-    //
-    //     let score = Score(game_state.score.0 + score_delta);
-    //
-    //     return match game_state.battlefields.next() {
-    //         Some(battlefields) =>
-    //         // Continue game
-    //         {
-    //             let mut new_game_state = GameState {
-    //                 battlefields,
-    //                 score,
-    //                 phase: Phase::Main1,
-    //                 ..*game_state
-    //             };
-    //
-    //             new_game_state
-    //                 .graveyard
-    //                 .0
-    //                 .add(self.current_creature() as usize);
-    //             new_game_state
-    //                 .graveyard
-    //                 .0
-    //                 .add(self.other_creature() as usize);
-    //
-    //             let p1 = &mut new_game_state.player_states.0;
-    //             let p2 = &mut new_game_state.player_states.1;
-    //
-    //             // Discard used creatures
-    //             p1.creatures.0.remove(self.current_creature() as usize);
-    //             p2.creatures.0.remove(self.other_creature() as usize);
-    //
-    //             // Discard used edicts
-    //             p1.edicts.0.remove(self.current_edict() as usize);
-    //             p2.edicts.0.remove(self.other_edict() as usize);
-    //
-    //             // Clear status effects
-    //             p1.effects.0.clear();
-    //             p2.effects.0.clear();
-    //             new_game_state.effects.0.clear();
-    //
-    //             // Resolve the Steward effect
-    //             if self.current_creature() == Creature::Steward && !self.creature_is_negated() {
-    //                 p1.edicts.0.fill();
-    //             } else if self.other_creature() == Creature::Steward
-    //                 && !self.flip().creature_is_negated()
-    //             {
-    //                 p2.edicts.0.fill();
-    //             }
-    //
-    //             // Set up global lingering effects
-    //             if self.battlefield == Battlefield::Night {
-    //                 new_game_state
-    //                     .effects
-    //                     .0
-    //                     .add(GlobalStatusEffect::Night as usize);
-    //             }
-    //
-    //             // first is winner, second is loser
-    //             let player_by_status = match battle_result {
-    //                 BattleResult::Won => Some((p1, p2)),
-    //                 BattleResult::Lost => Some((p2, p1)),
-    //                 BattleResult::Tied => None,
-    //             };
-    //
-    //             if let Some((winner, loser)) = player_by_status {
-    //                 // Set up battlefield lingering effects
-    //                 // - Glade:
-    //                 if self.battlefield == Battlefield::Glade {
-    //                     winner.effects.0.add(PlayerStatusEffect::Glade as usize);
-    //                 }
-    //                 // - Mountain
-    //                 if self.battlefield == Battlefield::Mountain {
-    //                     winner.effects.0.add(PlayerStatusEffect::Mountain as usize);
-    //                 }
-    //
-    //                 // Set up creature lingering effects
-    //                 // - Barbarian
-    //                 // if this card has already been played there's no point
-    //                 // in adding the status effect anymore
-    //                 if !new_game_state.graveyard.0.has(Creature::Barbarian as usize) {
-    //                     loser.effects.0.add(PlayerStatusEffect::Barbarian as usize)
-    //                 }
-    //             }
-    //
-    //             let p1 = &mut new_game_state.player_states.0;
-    //             let p2 = &mut new_game_state.player_states.1;
-    //
-    //             let creatures = [
-    //                 (Creature::Mercenary, PlayerStatusEffect::Mercenary),
-    //                 (Creature::Seer, PlayerStatusEffect::Seer),
-    //                 (Creature::Bard, PlayerStatusEffect::Bard),
-    //             ];
-    //
-    //             // - Mercenary
-    //             for (creature, effect) in creatures {
-    //                 if self.active_creature(creature) {
-    //                     p1.effects.0.add(effect as usize)
-    //                 } else if self.flip().active_creature(creature) {
-    //                     p2.effects.0.add(effect as usize)
-    //                 }
-    //             }
-    //
-    //             CompleteGameState::Unfinished(new_game_state)
-    //         }
-    //         // Report final results
-    //         None => CompleteGameState::Finished(score),
-    //     };
-    // }
+    pub fn advance_known_state(&self) -> TurnResult<KnownState> {
+        let player = Player::Me;
+        let battle_result = self.battle_result(player);
+
+        debug_assert_eq!(battle_result, !self.battle_result(!player));
+
+        let score_delta = self.battle_score_delta(battle_result, player);
+        let score = self.state.score + score_delta;
+
+        debug_assert_eq!(
+            score_delta,
+            -self.battle_score_delta(!battle_result, !player)
+        );
+
+        return match self.state.battlefields.next() {
+            // Continue game
+            Some(battlefields) => {
+                let mut new_state = KnownState {
+                    battlefields,
+                    score,
+                    ..self.state
+                };
+
+                let p1 = &mut player.select(new_state.player_states);
+                let p2 = &mut (!player).select(new_state.player_states);
+
+                // Discard used edicts
+                p1.edicts.remove(self.edict(player));
+                p2.edicts.remove(self.edict(!player));
+
+                // Clear status effects
+                p1.effects.clear();
+                p2.effects.clear();
+
+                // Resolve the Steward effect
+                // [[[STEWARD EFFECT 2]]]
+                if self.is_active_creature(player, Creature::Steward) {
+                    p1.edicts = EdictSet::all();
+                } else if self.is_active_creature(!player, Creature::Steward) {
+                    p2.edicts = EdictSet::all();
+                }
+
+                // Set up global lingering effects
+                if self.battlefield() == Battlefield::Night {
+                    // [[[NIGHT SETUP]]]
+                    p1.effects.add(PlayerStatusEffect::Night);
+                    p2.effects.add(PlayerStatusEffect::Night);
+                }
+
+                // first is winner, second is loser
+                let player_by_status = match battle_result {
+                    BattleResult::Won => Some((p1, p2)),
+                    BattleResult::Lost => Some((p2, p1)),
+                    BattleResult::Tied => None,
+                };
+
+                if let Some((winner, loser)) = player_by_status {
+                    match self.state.battlefields.current() {
+                        // [[[GLADE SETUP]]]
+                        Battlefield::Glade => {
+                            winner.effects.add(PlayerStatusEffect::Glade);
+                        }
+                        // [[[MOUNTAIN SETUP]]]
+                        Battlefield::Mountain => {
+                            winner.effects.add(PlayerStatusEffect::Mountain);
+                        }
+                        _ => {}
+                    }
+
+                    // if this card has already been played there's no point
+                    // in adding the status effect anymore
+                    // [[[BARBARIAN SETUP]]]
+                    if !new_state.graveyard.has(Creature::Barbarian) {
+                        loser.effects.add(PlayerStatusEffect::Barbarian)
+                    }
+                }
+
+                let creatures = [
+                    (Creature::Mercenary, PlayerStatusEffect::Mercenary),
+                    (Creature::Seer, PlayerStatusEffect::Seer),
+                    (Creature::Bard, PlayerStatusEffect::Bard),
+                ];
+
+                let players = [player, !player];
+                for player in players {
+                    let effects = &mut player.select(new_state.player_states).effects;
+                    match self.creature(player) {
+                        // [[[MERCENARY SETUP]]]
+                        Creature::Mercenary => effects.add(PlayerStatusEffect::Mercenary),
+                        // [[[SEER SETUP]]]
+                        Creature::Seer => effects.add(PlayerStatusEffect::Seer),
+                        // [[[BARD SETUP]]]
+                        Creature::Bard => effects.add(PlayerStatusEffect::Bard),
+                        _ => {}
+                    }
+                }
+
+                TurnResult::Unfinished(new_state)
+            }
+
+            // Report final results
+            None => TurnResult::Finished(score),
+        };
+    }
 }
+//
+// {{{ Tests
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::assert_eq;
+
+}
+// }}}

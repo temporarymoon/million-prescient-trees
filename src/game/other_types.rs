@@ -1,19 +1,9 @@
+use super::types::{Creature, Edict};
 use crate::game::types::{CreatureSet, EdictSet, PlayerStatusEffects};
 use std::fmt::{self, Display};
 use std::hash::Hash;
 
-use super::types::{
-    Battlefield, Creature, Edict,
-};
-
 // {{{ Player state
-// State of a player known by both players.
-#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
-pub struct KnownPlayerState {
-    pub edicts: EdictSet,
-    pub effects: PlayerStatusEffects,
-}
-
 // State involving only one of the players
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub struct PlayerState {
@@ -27,7 +17,7 @@ impl PlayerState {
         PlayerState {
             creatures,
             edicts: EdictSet::all(),
-            effects: PlayerStatusEffects::new(),
+            effects: Default::default(),
         }
     }
 }
@@ -145,50 +135,6 @@ impl Display for PhaseTransition {
                 }
             },
         }
-    }
-}
-// }}}
-// {{{ Score
-// Player 1 score - player 2 score
-// - Negative => player 2 won
-// - Positive => player 1 won
-// - 0 => draw
-#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
-pub struct Score(pub i8);
-// }}}
-// {{{ Battlefields
-#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
-pub struct Battlefields {
-    pub all: [Battlefield; 4],
-    pub current: u8,
-}
-
-impl Battlefields {
-    pub fn new(all: [Battlefield; 4]) -> Self {
-        Battlefields { all, current: 0 }
-    }
-
-    pub fn is_last(&self) -> bool {
-        self.current == 3
-    }
-
-    pub fn next(&self) -> Option<Self> {
-        if self.is_last() {
-            None
-        } else {
-            Some(Battlefields {
-                all: self.all,
-                current: self.current + 1,
-            })
-        }
-    }
-
-    pub fn active(&self) -> &[Battlefield] {
-        &self.all[(self.current as usize)..]
-    }
-
-    pub fn current(&self) -> Battlefield {
-        self.all[self.current as usize]
     }
 }
 // }}}
