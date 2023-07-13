@@ -66,26 +66,24 @@ Each creature has a set of unique effects.
 
 ### Wall
 
-1. ✅ The battle ends in a tie.
+1. ✅🧪 The battle ends in a tie.
 
 ### Seer
 
-1. ✅ The player is given the `seer` status effect for the next turn.
+1. ✅🧪 The player is given the `seer` status effect for the next turn.
 
 ### Rogue
 
-1. ✅ Negates the `seer` character.
-2. ✅ Wins agains the `monarch` and the `wall`.
+1. ✅🧪 Negates the `seer` character.
+2. ✅🧪 Wins agains the `monarch` and the `wall`.
 
 ### Bard
 
-1. ✅ The player is given the `bard` status effect for the next turn.
+1. ✅🧪 The player is given the `bard` status effect for the next turn.
 
 ### Diplomat
 
-1. ✅ Wins when both players have played the same edict.
-
-> Note: the card text originally says
+1. ✅🧪 Wins when both players have played the same edict.
 
 ### Ranger
 
@@ -98,17 +96,17 @@ Each creature has a set of unique effects.
 
 ### Barbarian
 
-1. ✅ Gains `+2` strength if the `barbarian` status effect is active.
+1. ✅🧪 Gains `+2` strength if the `barbarian` status effect is active.
 
 ### Witch
 
 1. ✅ Negates the effect of the opposing creature.
 2. ✅ Cannot gain strength from edicts.
-3. ✅ Wins against the `wall`.
+3. ✅🧪 Wins against the `wall`.
 
 ### Mercenary
 
-1. ✅ Gives the current player the `mercenary` status effect.
+1. ✅🧪 Gives the current player the `mercenary` status effect.
 
 ### Monarch
 
@@ -145,11 +143,11 @@ The player can play two creatures during the main phase. During the seer phase, 
 ### Bard
 
 1. ✅ The player gains `+1` strength.
-2. ✅ The player gains `+1` if when winning a battle.
+2. ✅ The player gains `+1` when winning a battle.
 
 ### Barbarian
 
-- ✅ When losing a battle, a player gets this effect for the following turn if the `barbarian` has not yet been played.
+- ✅🧪 When losing a battle, a player gets this effect for the following turn if the `barbarian` has not yet been played.
 
 ### Mercenary
 
@@ -165,7 +163,7 @@ The player can play two creatures during the main phase. During the seer phase, 
 
 ### Night
 
-- ✅ The player gains an additional victory point by winning this battle.
+- ✅🧪 The player gains an additional victory point by winning this battle.
 
 ## Phases
 

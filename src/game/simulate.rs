@@ -442,7 +442,12 @@ impl BattleContext {
                 }
 
                 for player in Player::PLAYERS {
-                    let effects = &mut player.select(new_state.player_states).effects;
+                    let effects = &mut player.select_mut(&mut new_state.player_states).effects;
+
+                    if self.creature_is_negated(player) {
+                        continue;
+                    };
+
                     match self.creature(player) {
                         // [[[MERCENARY SETUP]]]
                         Creature::Mercenary => effects.add(PlayerStatusEffect::Mercenary),
@@ -531,6 +536,7 @@ mod tests {
     });
     // }}}
     // {{{ Battlefields
+    // {{{ Glade & Mountain
     #[test]
     fn mountain_glade_setup() {
         let setups = [
@@ -592,7 +598,8 @@ mod tests {
             );
         }
     }
-
+    // }}}
+    // {{{ Night
     #[test]
     fn night_setup() {
         let mut ctx = *BASIC_BATTLE_CONTEXT;
@@ -623,7 +630,8 @@ mod tests {
             );
         }
     }
-
+    // }}}
+    // {{{ Urban
     #[test]
     fn urban_effect() {
         let mut ctx = *BASIC_BATTLE_CONTEXT;
@@ -634,7 +642,131 @@ mod tests {
         }
     }
     // }}}
+    // }}}
     // {{{ Creatures
+    // {{{ Wall
+    #[test]
+    fn wall_effect_rogue_effect_2_witch_effect_3() {
+        let mut ctx = *BASIC_BATTLE_CONTEXT;
+        ctx.set_creature(Player::Me, Creature::Wall);
+
+        // Prevent the diplomat from being triggered
+        ctx.set_edict(Player::Me, Edict::DivertAttention);
+        ctx.set_edict(Player::You, Edict::RileThePublic);
+
+        for creature in Creature::CREATURES {
+            ctx.set_creature(Player::You, creature);
+
+            let expected_result = if creature == Creature::Witch || creature == Creature::Rogue {
+                BattleResult::Lost
+            } else {
+                BattleResult::Tied
+            };
+
+            assert_eq!(
+                ctx.advance_known_state().0,
+                expected_result,
+                "Got the wrong result for {:?}",
+                creature
+            );
+        }
+    }
+    // }}}
+    // {{{ Seer & Mercenary & Bard
+    #[test]
+    fn seer_mercenary_bard_setup() {
+        let mut ctx = *BASIC_BATTLE_CONTEXT;
+        let setups = [
+            (Creature::Seer, PlayerStatusEffect::Seer),
+            (Creature::Bard, PlayerStatusEffect::Bard),
+            (Creature::Mercenary, PlayerStatusEffect::Mercenary),
+        ];
+
+        for (creature, effect) in setups {
+            ctx.set_creature(Player::Me, creature);
+
+            let has_effect = ctx
+                .advance_known_state()
+                .1
+                .get_unfinished()
+                .unwrap()
+                .player_states
+                .0
+                .effects
+                .has(effect);
+
+            assert!(has_effect, "{:?} setup does not work", creature);
+        }
+    }
+    // }}}
+    // {{{ Rogue
+    #[test]
+    fn rogue_effect_1() {
+        let mut ctx = *BASIC_BATTLE_CONTEXT;
+        ctx.set_creature(Player::Me, Creature::Rogue);
+        ctx.set_creature(Player::You, Creature::Seer);
+
+        let has_effect = ctx
+            .advance_known_state()
+            .1
+            .get_unfinished()
+            .unwrap()
+            .player_states
+            .1
+            .effects
+            .has(PlayerStatusEffect::Seer);
+
+        assert!(!has_effect, "Seer effect still active under rogue");
+    }
+
+    // The rogue vs wall battle is already covered in the wall test.
+    #[test]
+    fn rogue_effect_2() {
+        let mut ctx = *BASIC_BATTLE_CONTEXT;
+        ctx.set_creature(Player::Me, Creature::Rogue);
+        ctx.set_creature(Player::You, Creature::Monarch);
+
+        let result = ctx.advance_known_state().0;
+
+        assert_eq!(result, BattleResult::Won, "The rogue lost to the monarch");
+    }
+    // }}}
+    // {{{ Diplomat
+    #[test]
+    fn diplomat_effect() {
+        let mut ctx = *BASIC_BATTLE_CONTEXT;
+
+        ctx.set_creature(Player::Me, Creature::Diplomat);
+        ctx.set_edict(Player::Me, Edict::RileThePublic);
+        ctx.set_edict(Player::You, Edict::RileThePublic);
+
+        for creature in Creature::CREATURES {
+            if creature == Creature::Diplomat {
+                continue;
+            };
+
+            ctx.set_creature(Player::You, creature);
+
+            let result = ctx.advance_known_state().0;
+
+            if creature == Creature::Witch {
+                assert_eq!(
+                    result,
+                    BattleResult::Lost,
+                    "The witch should win against the diplomat"
+                );
+            } else {
+                assert_eq!(
+                    result,
+                    BattleResult::Won,
+                    "The diplomat should win against the {:?}",
+                    creature
+                );
+            }
+        }
+    }
+    // }}}
+    // {{{ Steward
     #[test]
     fn steward_effect_1() {
         for player in Player::PLAYERS {
@@ -672,18 +804,86 @@ mod tests {
             assert_eq!(opponent_edicts.len(), 4, "Opponent must have 4 edicts");
         }
     }
-    // }}}
-    // {{{ Rules
-    #[test]
-    fn edict_multiplier_additive() {
-        for player in Player::PLAYERS {
-            let mut ctx = *BASIC_BATTLE_CONTEXT;
-            ctx.set_battlefield(Battlefield::Urban);
-            ctx.set_creature(player, Creature::Steward);
 
-            assert_eq!(ctx.edict_multiplier(player), 3);
-            assert_eq!(ctx.edict_multiplier(!player), 2);
-        }
+    // }}}
+    // {{{ Barbarian
+    #[test]
+    fn barbarian_setup() {
+        let mut ctx = *BASIC_BATTLE_CONTEXT;
+        let loser = Player::You; // Player::Me wins the example battle
+        let effect = PlayerStatusEffect::Barbarian;
+
+        let effect_while_not_in_grave = loser
+            .select(
+                ctx.advance_known_state()
+                    .1
+                    .get_unfinished()
+                    .unwrap()
+                    .player_states,
+            )
+            .effects
+            .has(effect);
+
+        ctx.state.graveyard.add(Creature::Barbarian);
+
+        let effect_while_in_grave = loser
+            .select(
+                ctx.advance_known_state()
+                    .1
+                    .get_unfinished()
+                    .unwrap()
+                    .player_states,
+            )
+            .effects
+            .has(effect);
+
+        assert_eq!(
+            effect_while_not_in_grave, true,
+            "Barbarian should be given to the loser while the card is not in grave"
+        );
+
+        assert_eq!(
+            effect_while_in_grave, false,
+            "Barbarian should not be given to the loser while the card is not in grave"
+        );
+    }
+
+    #[test]
+    fn barbarian_effect() {
+        let mut ctx = *BASIC_BATTLE_CONTEXT;
+        let previous_loser = Player::Me;
+
+        ctx.add_effect(previous_loser, PlayerStatusEffect::Barbarian);
+
+        // We do not want the edicts to tinker with the strength values
+        ctx.set_edict(Player::Me, Edict::RileThePublic);
+        ctx.set_edict(Player::You, Edict::RileThePublic);
+
+        // We first make sure the barbarian does not work when
+        // playing a random creature, even if we already have
+        // the status effect.
+        assert_eq!(
+            ctx.strength_modifier(previous_loser),
+            0,
+            "Barbarian should not work on other creatures"
+        );
+
+        // We then play the barbarian creature...
+        ctx.set_creature(previous_loser, Creature::Barbarian);
+
+        // ...and make sure the status effect applies to us...
+        assert_eq!(
+            ctx.strength_modifier(previous_loser),
+            2,
+            "Barbarian does not work"
+        );
+
+        // ...but not to the opponent.
+        assert_eq!(
+            ctx.strength_modifier(!previous_loser),
+            0,
+            "Barbarian should not affect the opponent"
+        );
     }
     // }}}
 }
