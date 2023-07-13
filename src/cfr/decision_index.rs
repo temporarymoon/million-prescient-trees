@@ -1,6 +1,6 @@
 use crate::{
     game::types::{Creature, CreatureChoice, CreatureSet, Edict, EdictSet, UserCreatureChoice},
-    helpers::{bitfield::Bitfield, ranged::MixRanged},
+    helpers::{bitfield::Bitfield, choose::choose, ranged::MixRanged},
 };
 
 /// Used to index decision vectors.
@@ -35,6 +35,18 @@ impl DecisionIndex {
             CreatureChoice(creatures).decode_user_choice(hand, seer_active)?;
 
         Some((user_creature_choice, edict))
+    }
+
+    /// One more than the maximum value of `encode_main_phase_index`.
+    #[inline]
+    pub fn main_phase_index_count(
+        edict_count: usize,
+        hand_size: usize,
+        seer_active: bool,
+    ) -> usize {
+        let choice_count = choose(hand_size, UserCreatureChoice::len_from_status(seer_active));
+
+        choice_count * edict_count
     }
     // }}}
     // {{{ Sabotage phase
@@ -80,6 +92,19 @@ impl DecisionIndex {
             .into_iter()
             .next()
     }
+
+    /// One more than the maximum value of `encode_sabotage_phase_index`.
+    #[inline]
+    pub fn sabotage_phase_index_count(
+        hand_size: usize,
+        graveyard: CreatureSet,
+        seer_active: bool,
+    ) -> usize {
+        Creature::CREATURES.len()
+            - hand_size
+            - graveyard.len()
+            - UserCreatureChoice::len_from_status(seer_active)
+    }
     // }}}
     // {{{ Seer phase
     /// Encodes a decision we can take during the seer phase.
@@ -103,6 +128,12 @@ impl DecisionIndex {
         } else {
             None
         }
+    }
+
+    /// One more than the maximum value of `encode_seer_index`.
+    #[inline]
+    pub fn seer_phase_index_count() -> usize {
+        2
     }
     // }}}
 }
@@ -148,6 +179,11 @@ mod tests {
                         hand,
                     );
 
+                    assert!(
+                        encoded.0
+                            < DecisionIndex::main_phase_index_count(edicts.len(), hand.len(), true)
+                    );
+
                     let decoded = encoded.decode_main_phase_index(edicts, hand, true);
 
                     assert_eq!(
@@ -185,10 +221,15 @@ mod tests {
                 continue;
             };
 
+            let encoded = DecisionIndex::encode_sabotage_index(creature, hand, choice, graveyard);
+
             assert_eq!(
-                DecisionIndex::encode_sabotage_index(creature, hand, choice, graveyard)
-                    .decode_sabotage_index(hand, choice, graveyard),
+                encoded.decode_sabotage_index(hand, choice, graveyard),
                 Some(creature)
+            );
+
+            assert!(
+                encoded.0 < DecisionIndex::sabotage_phase_index_count(hand.len(), graveyard, true)
             );
         }
     }
@@ -211,11 +252,13 @@ mod tests {
                         None
                     };
 
-                    assert_eq!(
-                        DecisionIndex::encode_seer_index(played, result)
-                            .and_then(|e| e.decode_seer_index(played)),
-                        expected
-                    );
+                    let encoded = DecisionIndex::encode_seer_index(played, result);
+
+                    assert_eq!(encoded.and_then(|e| e.decode_seer_index(played)), expected);
+
+                    if let Some(encoded) = encoded {
+                        assert!(encoded.0 < DecisionIndex::seer_phase_index_count());
+                    }
                 }
             }
         }

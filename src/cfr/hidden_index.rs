@@ -2,6 +2,7 @@ use std::debug_assert_eq;
 
 use crate::game::types::{CreatureChoice, CreatureSet, UserCreatureChoice};
 use crate::helpers::bitfield::Bitfield;
+use crate::helpers::choose::choose;
 use crate::helpers::ranged::MixRanged;
 
 /// Encodes all hidden information known by a player.
@@ -47,6 +48,12 @@ impl HiddenIndex {
         hand_size: usize,
     ) -> Option<CreatureSet> {
         Self::decode_hand_contents(self.0, !graveyard, hand_size)
+    }
+
+    /// One more than the maximum value of `encode_main_index`
+    #[inline]
+    pub fn main_index_count(hand_size: usize, graveyard: CreatureSet) -> usize {
+        (!graveyard).hands_of_size(hand_size)
     }
     // }}}
     // {{{ Sabotage & seer phases
@@ -101,7 +108,6 @@ impl HiddenIndex {
     }
 
     /// Inverse of `encode_sabotage_index`
-    #[inline]
     pub fn decode_sabotage_seer_index(
         self,
         hand_size: usize,
@@ -121,6 +127,21 @@ impl HiddenIndex {
         Self::assure_valid_sabotage_seer_data(user_creature_choice, hand, graveyard);
 
         Some((user_creature_choice, hand))
+    }
+
+    /// One more than the maximum value of `encode_sabotage_seer_index`
+    #[inline]
+    pub fn sabotage_seer_index_count(
+        hand_size: usize,
+        graveyard: CreatureSet,
+        seer_active: bool,
+    ) -> usize {
+        let hand_possibilites = !(graveyard);
+        let hand_count = hand_possibilites.hands_of_size(hand_size);
+        let choice_len = UserCreatureChoice::len_from_status(seer_active);
+        let choice_count = choose(hand_possibilites.len() - hand_size, choice_len);
+
+        choice_count * hand_count
     }
     // }}}
 }
@@ -146,12 +167,11 @@ mod tests {
                 // Construct bitfields
                 let graveyard = CreatureSet(Bitfield::new(j));
                 let hand = CreatureSet(Bitfield::new(i));
+                let encoded = HiddenIndex::encode_main_index(hand, graveyard);
 
-                assert_eq!(
-                    HiddenIndex::encode_main_index(hand, graveyard)
-                        .decode_main_index(graveyard, hand.len()),
-                    Some(hand)
-                );
+                assert_eq!(encoded.decode_main_index(graveyard, hand.len()), Some(hand));
+
+                assert!(encoded.0 < HiddenIndex::main_index_count(hand.len(), graveyard));
             }
         }
     }
@@ -183,19 +203,24 @@ mod tests {
                         };
 
                         let creature_choice = UserCreatureChoice(creature_one, Some(creature_two));
+                        let encoded = HiddenIndex::encode_sabotage_seer_index(
+                            creature_choice,
+                            hand,
+                            graveyard,
+                        );
 
                         assert_eq!(
-                            HiddenIndex::encode_sabotage_seer_index(
-                                creature_choice,
-                                hand,
-                                graveyard
-                            )
-                            .decode_sabotage_seer_index(
-                                hand.len(),
-                                graveyard,
-                                true
-                            ),
+                            encoded.decode_sabotage_seer_index(hand.len(), graveyard, true),
                             Some((creature_choice, hand))
+                        );
+
+                        assert!(
+                            encoded.0
+                                < HiddenIndex::sabotage_seer_index_count(
+                                    hand.len(),
+                                    graveyard,
+                                    true
+                                )
                         );
                     }
                 }
