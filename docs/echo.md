@@ -2,7 +2,7 @@
 
 This document provides a detailed description of my understanding of all the rules of echo. The rules will be eplained in a way that might not be human friendly, but is useful for computer implementations.
 
-The ✅ emoji means somethings is present in my implementation. The 🧪 emoji means it is also included in the automatic tests.
+The ✅ emoji means something is present in my implementation. The 🧪 emoji means said thing is also included in the automatic tests.
 
 ## Setup
 
