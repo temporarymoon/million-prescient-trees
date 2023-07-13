@@ -65,13 +65,6 @@ impl BattleContext {
         self.main_choice(player).creature
     }
 
-    /// Sets the main creature played by a player.
-    #[inline]
-    fn set_creature(&mut self, player: Player, creature: Creature) {
-        let choice = player.select_mut(&mut self.main_choices);
-        choice.creature = creature;
-    }
-
     /// Returns the player effects active on some player.
     #[inline]
     fn player_effects(&self, player: Player) -> PlayerStatusEffects {
@@ -82,12 +75,6 @@ impl BattleContext {
     #[inline]
     fn battlefield(&self) -> Battlefield {
         self.state.battlefields.current()
-    }
-
-    /// Sets the main creature played by a player.
-    #[inline]
-    fn set_battlefield(&mut self, battlefield: Battlefield) {
-        self.state.battlefields.all[self.state.battlefields.current] = battlefield;
     }
 
     /// Checks if the creature a player has played is negated.
@@ -478,6 +465,44 @@ impl BattleContext {
     }
 }
 
+// {{{ Test helpers
+impl BattleContext {
+    /// Sets the creature played by a player.
+    #[inline]
+    fn set_creature(&mut self, player: Player, creature: Creature) {
+        let choice = player.select_mut(&mut self.main_choices);
+        choice.creature = creature;
+    }
+
+    /// Sets the edict played by a player.
+    #[inline]
+    fn set_edict(&mut self, player: Player, edict: Edict) {
+        let choice = player.select_mut(&mut self.main_choices);
+        choice.edict = edict;
+    }
+
+    /// Returns a mut ref to the player effects active on some player.
+    #[inline]
+    fn player_effects_mut(&mut self, player: Player) -> &mut PlayerStatusEffects {
+        &mut player.select_mut(&mut self.state.player_states).effects
+    }
+
+    /// Returns a mut ref to the player effects active on some player.
+    #[inline]
+    fn add_effect(&mut self, player: Player, effect: PlayerStatusEffect) {
+        player
+            .select_mut(&mut self.state.player_states)
+            .effects
+            .add(effect)
+    }
+
+    /// Sets the main creature played by a player.
+    #[inline]
+    fn set_battlefield(&mut self, battlefield: Battlefield) {
+        self.state.battlefields.all[self.state.battlefields.current] = battlefield;
+    }
+}
+// }}}
 // {{{ Tests
 #[cfg(test)]
 mod tests {
@@ -490,6 +515,7 @@ mod tests {
     };
     use once_cell::sync::Lazy;
 
+    // {{{ Common setup
     const BASIC_STATE: Lazy<KnownState> = Lazy::new(|| KnownState {
         battlefields: Battlefields::new([Battlefield::Plains; 4]),
         graveyard: CreatureSet::default(),
@@ -498,12 +524,12 @@ mod tests {
     });
 
     const BASIC_BATTLE_CONTEXT: Lazy<BattleContext> = Lazy::new(|| {
-        let p1_choice = FinalMainPhaseChoice::new(Creature::Monarch, Edict::DivertAttention);
-        let p2_choice = FinalMainPhaseChoice::new(Creature::Seer, Edict::RileThePublic);
+        let p1_choice = FinalMainPhaseChoice::new(Creature::Mercenary, Edict::Gambit);
+        let p2_choice = FinalMainPhaseChoice::new(Creature::Seer, Edict::Gambit);
 
         BattleContext::new((p1_choice, p2_choice), (None, None), *BASIC_STATE)
     });
-
+    // }}}
     // {{{ Battlefields
     #[test]
     fn mountain_glade_setup() {
@@ -532,6 +558,42 @@ mod tests {
     }
 
     #[test]
+    fn glade_effect() {
+        let winner = Player::Me;
+        for player in Player::PLAYERS {
+            let mut ctx = *BASIC_BATTLE_CONTEXT;
+            ctx.add_effect(player, PlayerStatusEffect::Glade);
+
+            let extra_reward = ctx.battle_reward(winner) - ctx.battlefield().reward();
+
+            if player == winner {
+                assert_eq!(extra_reward, 2, "Glade effect does not work");
+            } else {
+                assert_eq!(extra_reward, 0, "Glade should only affect one player");
+            }
+        }
+    }
+
+    #[test]
+    fn mountain_effect() {
+        for player in Player::PLAYERS {
+            let mut ctx = *BASIC_BATTLE_CONTEXT;
+            ctx.add_effect(player, PlayerStatusEffect::Mountain);
+
+            // We don't want the edicts to influence the strength values.
+            ctx.set_edict(player, Edict::RileThePublic);
+            ctx.set_edict(!player, Edict::RileThePublic);
+
+            assert_eq!(ctx.strength_modifier(player), 1, "Mountain does not work");
+            assert_eq!(
+                ctx.strength_modifier(!player),
+                0,
+                "Mountain should only affect one player"
+            );
+        }
+    }
+
+    #[test]
     fn night_setup() {
         let mut ctx = *BASIC_BATTLE_CONTEXT;
         ctx.set_battlefield(Battlefield::Night);
@@ -546,7 +608,24 @@ mod tests {
     }
 
     #[test]
-    fn urban_effect_1() {
+    fn night_effect() {
+        let mut ctx = *BASIC_BATTLE_CONTEXT;
+
+        // Give the status effect to both players
+        ctx.add_effect(Player::Me, PlayerStatusEffect::Night);
+        ctx.add_effect(Player::You, PlayerStatusEffect::Night);
+
+        for player in Player::PLAYERS {
+            assert_eq!(
+                ctx.battle_reward(player) - ctx.battlefield().reward(),
+                1,
+                "Night effect does not work"
+            );
+        }
+    }
+
+    #[test]
+    fn urban_effect() {
         let mut ctx = *BASIC_BATTLE_CONTEXT;
         ctx.set_battlefield(Battlefield::Urban);
 

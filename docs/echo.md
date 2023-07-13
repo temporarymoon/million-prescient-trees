@@ -157,11 +157,11 @@ The player can play two creatures during the main phase. During the seer phase, 
 
 ### Glade
 
-- ✅ The player gains `2` additional victory points by winning this battle.
+- ✅🧪 The player gains `2` additional victory points by winning this battle.
 
 ### Mountain
 
-- ✅ The current creature gains `+1` strength.
+- ✅🧪 The current creature gains `+1` strength.
 
 ### Night
 
