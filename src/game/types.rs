@@ -170,7 +170,7 @@ impl Display for PlayerStatusEffect {
 // {{{ Bitfields
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug, Default)]
 pub struct CreatureSet(pub Bitfield);
-#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug, Default)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub struct EdictSet(pub Bitfield);
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug, Default)]
 pub struct PlayerStatusEffects(pub Bitfield);
@@ -305,6 +305,11 @@ impl Not for CreatureSet {
 // {{{ EdictSet
 impl EdictSet {
     #[inline]
+    pub fn empty() -> Self {
+        EdictSet(Bitfield::default())
+    }
+
+    #[inline]
     pub fn all() -> Self {
         EdictSet(Bitfield::n_ones(5))
     }
@@ -335,6 +340,12 @@ impl EdictSet {
     pub fn index(self, index: EdictIndex) -> Option<Edict> {
         self.0.lookup_from_end(index).map(|x| Edict::EDICTS[x])
     }
+}
+
+impl Default for EdictSet {
+   fn default() -> Self {
+       Self::all()
+   } 
 }
 // }}}
 // {{{ PlayerStatusEffects
@@ -382,14 +393,25 @@ impl Not for Player {
 }
 
 impl Player {
+    /// List of all players.
+    pub const PLAYERS: [Self; 2] = [Player::Me, Player::You];
+
     /// Index a pair by a player,
     /// where the first and second elements represents the data
     /// for the current and other players respectively.
     #[inline]
     pub fn select<T>(self, pair: (T, T)) -> T {
         match self {
-            Player::Me => pair.1,
-            Player::You => pair.0,
+            Player::Me => pair.0,
+            Player::You => pair.1,
+        }
+    }
+
+    #[inline]
+    pub fn select_mut<T>(self, pair: &mut (T, T)) -> &mut T {
+        match self {
+            Player::Me => &mut pair.0,
+            Player::You => &mut pair.1,
         }
     }
 }

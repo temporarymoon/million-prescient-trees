@@ -49,8 +49,15 @@ impl MainPhaseChoice {
 // Similar to MainPhaseChoice but used after the seer phase gets resolved
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub struct FinalMainPhaseChoice {
-    pub edict: Edict,
     pub creature: Creature,
+    pub edict: Edict,
+}
+
+impl FinalMainPhaseChoice {
+    #[inline]
+    pub fn new(creature: Creature, edict: Edict) -> Self {
+        Self { creature, edict }
+    }
 }
 // }}}
 // {{{ Phase

@@ -4,6 +4,7 @@
 #![feature(const_mut_refs)]
 #![feature(const_option)]
 #![feature(const_fmt_arguments_new)]
+#![feature(const_trait_impl)]
 #![allow(dead_code)]
 
 use helpers::bitfield::Bitfield;

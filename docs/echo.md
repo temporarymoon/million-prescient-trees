@@ -2,6 +2,8 @@
 
 This document provides a detailed description of my understanding of all the rules of echo. The rules will be eplained in a way that might not be human friendly, but is useful for computer implementations.
 
+The ✅ emoji means somethings is present in my implementation. The 🧪 emoji means it is also included in the automatic tests.
+
 ## Setup
 
 The 11 creature cards are shuffled. One random card is placed away. This card will be referred to as the `overseer`. Half the remaining cards are distributed to each player (at random).
@@ -22,19 +24,19 @@ Each battlefield has a list of creatures it offers bonuses to. Each such creatur
 
 ### Glade
 
-- [x] The winner of the current battle gets the `glade` status effect for the following turn.
+- ✅🧪 The winner of the current battle gets the `glade` status effect for the following turn.
 
 ### Mountain
 
-- [x] The winner of the current battle gets the `mountain` status effect for the following turn.
+- ✅🧪 The winner of the current battle gets the `mountain` status effect for the following turn.
 
 ### Urban
 
-- [x] Increses the edict multiplier by `1`.
+- ✅🧪 Increses the edict multiplier by `1`.
 
 ### Night
 
-- [x] Gives both players the night status effect.
+- ✅🧪 Gives both players the night status effect.
 
 ### Last strand
 
@@ -64,73 +66,75 @@ Each creature has a set of unique effects.
 
 ### Wall
 
-1. [x] The battle ends in a tie.
+1. ✅ The battle ends in a tie.
 
 ### Seer
 
-1. [x] The player is given the `seer` status effect for the next turn.
+1. ✅ The player is given the `seer` status effect for the next turn.
 
 ### Rogue
 
-1. [x] Negates the `seer` character.
-2. [x] Wins agains the `monarch` and the `wall`.
+1. ✅ Negates the `seer` character.
+2. ✅ Wins agains the `monarch` and the `wall`.
 
 ### Bard
 
-1. [x] The player is given the `bard` status effect for the next turn.
+1. ✅ The player is given the `bard` status effect for the next turn.
 
 ### Diplomat
 
-1. [x] Wins when both players have played the same edict.
+1. ✅ Wins when both players have played the same edict.
 
 > Note: the card text originally says
 
 ### Ranger
 
-1. [x] Gains `+2` strength if the played receives a battlefield bonus and the opponent does not.
+1. ✅ Gains `+2` strength if the played receives a battlefield bonus and the opponent does not.
 
 ### Steward
 
-1. [x] Increase the edict multiplier by `1` for the current player, this turn only.
-2. [x] At the end of the turn, return all edicts back to the hand.
+1. ✅🧪 Increase the edict multiplier by `1` for the current player, this turn only.
+2. ✅🧪 At the end of the turn, return all edicts back to the hand.
 
 ### Barbarian
 
-1. [x] Gains `+2` strength if the `barbarian` status effect is active.
+1. ✅ Gains `+2` strength if the `barbarian` status effect is active.
 
 ### Witch
 
-1. [x] Negates the effect of the opposing creature.
-2. [x] Cannot gain strength from edicts.
-3. [x] Wins against the `wall`.
+1. ✅ Negates the effect of the opposing creature.
+2. ✅ Cannot gain strength from edicts.
+3. ✅ Wins against the `wall`.
 
 ### Mercenary
 
-1. [x] Gives the current player the `mercenary` status effect.
+1. ✅ Gives the current player the `mercenary` status effect.
 
 ### Monarch
 
-1. [x] Not winning the current battle yields the opponent `2` victory points.
+1. ✅ Not winning the current battle yields the opponent `2` victory points.
 
 ## Edicts
 
+The effects of the edicts is multiplied by the "edict multiplier". Edict multiplier bonuses are additive 🧪.
+
 ### Rile the public
 
-1. [x] The current battlefield is worth `+1` victory points.
-2. [x] Negates `divert attention`.
+1. ✅ The current battlefield is worth `+1` victory points.
+2. ✅ Negates `divert attention`.
 
 ### Divert attention
 
-1. [x] The current battlefield is worth `-1` victory points.
+1. ✅ The current battlefield is worth `-1` victory points.
 
 ### Gambit
 
-1. [x] Gain `+1` strength.
-2. [x] You lose on ties.
+1. ✅ Gain `+1` strength.
+2. ✅ You lose on ties.
 
 ### Ambush
 
-1. [x] If your creature has a battlefield bonus, gain an additional `+1` strength.
+1. ✅ If your creature has a battlefield bonus, gain an additional `+1` strength.
 
 ## Player status effects
 
@@ -140,28 +144,28 @@ The player can play two creatures during the main phase. During the seer phase, 
 
 ### Bard
 
-1. [x] The player gains `+1` strength.
-2. [x] The player gains `+1` if when winning a battle.
+1. ✅ The player gains `+1` strength.
+2. ✅ The player gains `+1` if when winning a battle.
 
 ### Barbarian
 
-- [x] When losing a battle, a player gets this effect for the following turn if the `barbarian` has not yet been played.
+- ✅ When losing a battle, a player gets this effect for the following turn if the `barbarian` has not yet been played.
 
 ### Mercenary
 
-- [x] Gives the current creature `-1` strength.
+- ✅ Gives the current creature `-1` strength.
 
 ### Glade
 
-- [x] The player gains `2` additional victory points by winning this battle.
+- ✅ The player gains `2` additional victory points by winning this battle.
 
 ### Mountain
 
-- [x] The current creature gains `+1` strength.
+- ✅ The current creature gains `+1` strength.
 
 ### Night
 
-- [x] The player gains an additional victory point by winning this battle.
+- ✅ The player gains an additional victory point by winning this battle.
 
 ## Phases
 

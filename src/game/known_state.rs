@@ -5,7 +5,7 @@ use std::ops::Add;
 // - Negative => player 2 won
 // - Positive => player 1 won
 // - 0 => draw
-#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
 pub struct Score(pub i8);
 
 // {{{ impl Score
@@ -34,7 +34,7 @@ pub struct Battlefields {
 
 // {{{ impl Battlefields
 impl Battlefields {
-    pub fn new(all: [Battlefield; 4]) -> Self {
+    pub const fn new(all: [Battlefield; 4]) -> Self {
         Battlefields { all, current: 0 }
     }
 
@@ -72,7 +72,25 @@ pub struct KnownState {
     pub score: Score,
 }
 
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum TurnResult<T> {
     Finished(Score),
     Unfinished(T),
 }
+
+// {{{ impl TurnResult
+impl<T> TurnResult<T> {
+    pub fn is_finished(&self) -> bool {
+        match self {
+            TurnResult::Finished(_) => true,
+            TurnResult::Unfinished(_) => false,
+        }
+    }
+    pub fn get_unfinished(self) -> Option<T> {
+        match self {
+            TurnResult::Finished(_) => None,
+            TurnResult::Unfinished(result) => Some(result),
+        }
+    }
+}
+// }}}
