@@ -1,3 +1,4 @@
+use std::ops::Add;
 use std::ops::Not;
 
 // {{{ Players
@@ -41,5 +42,60 @@ impl Player {
         }
     }
 }
+// }}}
+// {{{ Score
+// Player 1 score - player 2 score
+// - Negative => player 2 won
+// - Positive => player 1 won
+// - 0 => draw
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
+pub struct Score(pub i8);
 
+impl Add<i8> for Score {
+    type Output = Self;
+    fn add(self, rhs: i8) -> Self::Output {
+        Score(self.0 + rhs)
+    }
+}
+// }}}
+// {{{ TurnResult
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+pub enum TurnResult<T> {
+    Finished(Score),
+    Unfinished(T),
+}
+
+impl<T> TurnResult<T> {
+    pub fn is_finished(&self) -> bool {
+        match self {
+            TurnResult::Finished(_) => true,
+            TurnResult::Unfinished(_) => false,
+        }
+    }
+    pub fn get_unfinished(self) -> Option<T> {
+        match self {
+            TurnResult::Finished(_) => None,
+            TurnResult::Unfinished(result) => Some(result),
+        }
+    }
+}
+// }}}
+// {{{ BattleResult
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+pub enum BattleResult {
+    Lost,
+    Tied,
+    Won,
+}
+
+impl Not for BattleResult {
+    type Output = Self;
+    fn not(self) -> Self::Output {
+        match self {
+            BattleResult::Lost => BattleResult::Won,
+            BattleResult::Tied => BattleResult::Tied,
+            BattleResult::Won => BattleResult::Lost,
+        }
+    }
+}
 // }}}

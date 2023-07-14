@@ -5,31 +5,11 @@ use super::{
     choice::{FinalMainPhaseChoice, SabotagePhaseChoice},
     creature::Creature,
     edict::Edict,
-    known_state::{KnownState, TurnResult},
+    known_state::KnownState,
     status_effect::{StatusEffect, StatusEffectSet},
-    types::Player,
+    types::{Player, TurnResult, BattleResult},
 };
-use std::{debug_assert_eq, ops::Not};
-
-// {{{ BattleResult
-#[derive(PartialEq, Eq, Clone, Copy, Debug)]
-pub enum BattleResult {
-    Lost,
-    Tied,
-    Won,
-}
-
-impl Not for BattleResult {
-    type Output = Self;
-    fn not(self) -> Self::Output {
-        match self {
-            BattleResult::Lost => BattleResult::Won,
-            BattleResult::Tied => BattleResult::Tied,
-            BattleResult::Won => BattleResult::Lost,
-        }
-    }
-}
-// }}}
+use std::debug_assert_eq;
 
 // Context required resolving a battle
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -517,7 +497,7 @@ impl BattleContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game::{creature::CreatureSet, known_state::Score, battlefield::Battlefields};
+    use crate::game::{battlefield::Battlefields, creature::CreatureSet, types::Score};
     use once_cell::sync::Lazy;
     use std::assert_eq;
 
