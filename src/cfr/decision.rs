@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use super::decision_index::DecisionIndex;
+use crate::game::known_state::KnownState;
 use crate::game::types::Player;
 use crate::helpers::{normalize_vec, roulette, swap::Pair};
 use bumpalo::Bump;
@@ -14,7 +15,6 @@ pub type Utility = f32;
 pub type Probability = f32;
 // }}}
 // {{{ Decision vector
-// {{{ Types
 /// A decision a player takes in the game.
 ///
 /// For efficiency, all the values are tightly packed into vectors indexed
@@ -35,7 +35,6 @@ pub struct DecisionVector<'a> {
     /// The probabilities of each player taking the actions required to reach this state.
     realization_weights: (Probability, Probability),
 }
-// }}}
 
 impl<'a> DecisionVector<'a> {
     // {{{ Helpers
@@ -150,10 +149,6 @@ pub struct SabotageExtraInfo {
 }
 // }}}
 
-/// An index into a player's hand.
-/// More efficiently packed than keeping the absolute id of the card.
-pub type CreatureIndex = usize;
-
 /// Holds additional information about the current scope we are in.
 /// This information depends on the type of phase the scope represents.
 #[derive(Debug)]
@@ -161,15 +156,6 @@ pub enum ExploredScopeExtraInfo {
     Main(MainExtraInfo),
     Sabotage(SabotageExtraInfo),
     Seer,
-}
-
-/// Hidden information which needs to be carried out for the current scope.
-/// The overseer / hand-content is implicit here.
-#[derive(Debug)]
-pub enum ExploredScopeHiddenInfo {
-    PreMain,
-    PreSabotage(CreatureIndex, CreatureIndex),
-    PreSeer(CreatureIndex),
 }
 
 /// An explored scope is a scope where all the game rules have
@@ -182,36 +168,20 @@ pub struct ExploredScope<'a> {
     pub matrix: DecisionMatrix<'a>,
 
     /// Vector of possible future states.
-    pub next: Vec<Scope<'a>, &'a Bump>,
+    pub next: &'a mut [Scope<'a>],
 }
-
-impl<'a> ExploredScope<'a> {
-    pub fn get_next(
-        &self,
-        _decisions: (DecisionIndex, DecisionIndex),
-        hidden: ExploredScopeHiddenInfo,
-    ) -> (usize, ExploredScopeHiddenInfo) {
-        match (&self.kind, hidden) {
-            (kind, hidden) => {
-                panic!(
-                    "Cannot advance from state {:?} given hidden info {:?}",
-                    kind, hidden
-                )
-            }
-        }
-    }
+// }}}
+// {{{ Unexplored scope
+/// An explored scope is a scope where all the game rules have
+/// been unrolled and all the game states have been created.
+// TODO: add utility tables
+pub struct Unexploredscope {
+    pub state: KnownState,
 }
-
 // }}}
 // {{{ Scope
 pub enum Scope<'a> {
-    Unexplored,
+    Unexplored(Unexploredscope),
     Explored(ExploredScope<'a>),
-}
-
-impl<'a> Default for Scope<'a> {
-    fn default() -> Self {
-        Scope::Unexplored
-    }
 }
 // }}}

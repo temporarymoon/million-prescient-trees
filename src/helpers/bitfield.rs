@@ -12,7 +12,7 @@ macro_rules! make_bitfield {
         $index_bitfield: ty, 
         $default_is_empty: literal
     ) => {
-        #[derive(PartialEq, Eq, Hash, Clone, Copy)]
+        #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
         pub struct $name($repr);
 
         // {{{ Main impl block
@@ -21,7 +21,7 @@ macro_rules! make_bitfield {
             pub const MAX: $repr = if $bits == <$repr>::BITS {
                 <$repr>::MAX
             } else {
-                (1 << $bits) - 1
+                (1 << ($bits)) - 1
             };
 
             #[inline(always)]
