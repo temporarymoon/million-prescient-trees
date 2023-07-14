@@ -1,5 +1,9 @@
 use crate::{
-    game::types::{Creature, CreatureChoice, CreatureSet, Edict, EdictSet, UserCreatureChoice},
+    game::{
+        creature::{Creature, CreatureSet},
+        creature_choice::{CreatureChoice, UserCreatureChoice},
+        edict::{Edict, EdictSet},
+    },
     helpers::{bitfield::Bitfield, choose::choose, ranged::MixRanged},
 };
 
@@ -38,7 +42,7 @@ impl DecisionIndex {
     }
 
     /// One more than the maximum value of `encode_main_phase_index`.
-    #[inline]
+    #[inline(always)]
     pub fn main_phase_index_count(
         edict_count: usize,
         hand_size: usize,
@@ -94,7 +98,7 @@ impl DecisionIndex {
     }
 
     /// One more than the maximum value of `encode_sabotage_phase_index`.
-    #[inline]
+    #[inline(always)]
     pub fn sabotage_phase_index_count(
         hand_size: usize,
         graveyard: CreatureSet,
@@ -131,7 +135,7 @@ impl DecisionIndex {
     }
 
     /// One more than the maximum value of `encode_seer_index`.
-    #[inline]
+    #[inline(always)]
     pub fn seer_phase_index_count() -> usize {
         2
     }
@@ -141,10 +145,8 @@ impl DecisionIndex {
 // {{{ Tests
 #[cfg(test)]
 mod tests {
-    use std::assert_eq;
-
     use super::*;
-    use crate::game::types::Creature;
+    use std::assert_eq;
 
     // {{{ Main phase
     #[test]

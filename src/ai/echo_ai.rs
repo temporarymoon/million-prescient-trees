@@ -1,8 +1,8 @@
-use crate::game::types::{Battlefield, Creature, CreatureSet};
-
-pub type MainChoice = (Creature, Option<Creature>);
-pub type SabotageChoice = Option<Creature>;
-pub type SeerChoice = Option<Creature>;
+use crate::game::{
+    battlefield::Battlefield,
+    choice::{MainPhaseChoice, SabotagePhaseChoice, SeerPhaseChoice},
+    creature::CreatureSet,
+};
 
 /// Generic trait that can be implemented by any echo ai.
 /// Right now, it requires the ai to keep track of the game state.
@@ -15,29 +15,37 @@ pub trait EchoAi {
     fn begin(&self, hand: CreatureSet, battlefields: [Battlefield; 4]) -> Self::MainState;
 
     // {{{ Choices
-    fn choose_main(&self, state: &Self::MainState, choices: &[MainChoice]) -> Option<MainChoice>;
+    fn choose_main(
+        &self,
+        state: &Self::MainState,
+        choices: &[MainPhaseChoice],
+    ) -> Option<MainPhaseChoice>;
     fn choose_sabotage(
         &self,
         state: &Self::SabotageState,
-        choices: &[SabotageChoice],
-    ) -> Option<SabotageChoice>;
-    fn choose_seer(&self, state: &Self::SeerState, choices: &[SeerChoice]) -> Option<SeerChoice>;
+        choices: &[SabotagePhaseChoice],
+    ) -> Option<SabotagePhaseChoice>;
+    fn choose_seer(
+        &self,
+        state: &Self::SeerState,
+        choices: &[SeerPhaseChoice],
+    ) -> Option<SeerPhaseChoice>;
     // }}}
     // {{{ Advance state
     fn advance_main(
         &self,
         state: &Self::MainState,
-        choices: (MainChoice, MainChoice),
+        choices: (MainPhaseChoice, MainPhaseChoice),
     ) -> Option<Self::SabotageState>;
     fn advance_sabotage(
         &self,
         state: &Self::SabotageState,
-        choices: (SabotageChoice, SabotageChoice),
+        choices: (SabotagePhaseChoice, SabotagePhaseChoice),
     ) -> Option<Self::SeerState>;
     fn advance_seer(
         &self,
         state: &Self::SeerState,
-        choices: (SeerChoice, SeerChoice),
+        choices: (SeerPhaseChoice, SeerPhaseChoice),
     ) -> Option<Self::MainState>;
     // }}}
 }

@@ -1,9 +1,14 @@
+use crate::game::edict::EdictSet;
+
 use super::{
+    battlefield::Battlefield,
+    choice::{FinalMainPhaseChoice, SabotagePhaseChoice},
+    creature::Creature,
+    edict::Edict,
     known_state::{KnownState, TurnResult},
-    other_types::{FinalMainPhaseChoice, SabotagePhaseChoice},
-    types::{Battlefield, Creature, Edict, Player, PlayerStatusEffect, PlayerStatusEffects},
+    status_effect::{StatusEffect, StatusEffectSet},
+    types::Player,
 };
-use crate::game::types::EdictSet;
 use std::{debug_assert_eq, ops::Not};
 
 // {{{ BattleResult
@@ -35,7 +40,7 @@ pub struct BattleContext {
 }
 
 impl BattleContext {
-    #[inline]
+    #[inline(always)]
     pub fn new(
         main_choices: (FinalMainPhaseChoice, FinalMainPhaseChoice),
         sabotage_choices: (SabotagePhaseChoice, SabotagePhaseChoice),
@@ -48,37 +53,37 @@ impl BattleContext {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     fn main_choice(&self, player: Player) -> FinalMainPhaseChoice {
         player.select(self.main_choices)
     }
 
     /// Returns the edict played by the current player.
-    #[inline]
+    #[inline(always)]
     fn edict(&self, player: Player) -> Edict {
         self.main_choice(player).edict
     }
 
     /// Returns the creature played by the current player.
-    #[inline]
+    #[inline(always)]
     fn creature(&self, player: Player) -> Creature {
         self.main_choice(player).creature
     }
 
     /// Returns the player effects active on some player.
-    #[inline]
-    fn player_effects(&self, player: Player) -> PlayerStatusEffects {
+    #[inline(always)]
+    fn player_effects(&self, player: Player) -> StatusEffectSet {
         player.select(self.state.player_states).effects
     }
 
     /// Returns the current battlefield
-    #[inline]
+    #[inline(always)]
     fn battlefield(&self) -> Battlefield {
         self.state.battlefields.current()
     }
 
     /// Checks if the creature a player has played is negated.
-    #[inline]
+    #[inline(always)]
     fn creature_is_negated(&self, player: Player) -> bool {
         // [[[WITCH EFFECT 1]]]
         let witch = self.creature(!player) == Creature::Witch;
@@ -91,7 +96,7 @@ impl BattleContext {
 
     /// Returns true if the given creature is the one a given player
     /// has played, and if it's effect has not been negated
-    #[inline]
+    #[inline(always)]
     fn is_active_creature(&self, player: Player, creature: Creature) -> bool {
         creature == self.creature(player) && !self.creature_is_negated(player)
     }
@@ -118,7 +123,7 @@ impl BattleContext {
 
     /// Returns true if the creature a player has played
     /// is affected by the battlefield bonus.
-    #[inline]
+    #[inline(always)]
     fn battlefield_bonus(&self, player: Player) -> bool {
         self.battlefield().bonus(self.creature(player))
     }
@@ -142,7 +147,7 @@ impl BattleContext {
                     result += 2;
                 }
                 // [[[BARBARIAN EFFECT 1]]]
-                Creature::Barbarian if effects.has(PlayerStatusEffect::Barbarian) => {
+                Creature::Barbarian if effects.has(StatusEffect::Barbarian) => {
                     result += 2;
                 }
                 _ => {}
@@ -172,16 +177,16 @@ impl BattleContext {
         // Lingering effects which modify strength:
         // Effects caused by the previously played creature
         // [[[BARD EFFECT 1]]]
-        if effects.has(PlayerStatusEffect::Bard) {
+        if effects.has(StatusEffect::Bard) {
             result += 1;
         // [[[MERCENARY EFFECT 1]]]
-        } else if effects.has(PlayerStatusEffect::Mercenary) {
+        } else if effects.has(StatusEffect::Mercenary) {
             result -= 1;
         }
 
         // Effects caused by previous battlefields
         // [[[MOUNTAIN EFFECT 1]]]
-        if effects.has(PlayerStatusEffect::Mountain) {
+        if effects.has(StatusEffect::Mountain) {
             result += 1;
         }
 
@@ -312,15 +317,15 @@ impl BattleContext {
 
         // Lingering effects:
         // [[[NIGHT EFFECT 1]]]
-        if effects.has(PlayerStatusEffect::Night) {
+        if effects.has(StatusEffect::Night) {
             total += 1;
         // [[[GLADE EFFECT 1]]]
-        } else if effects.has(PlayerStatusEffect::Glade) {
+        } else if effects.has(StatusEffect::Glade) {
             total += 2;
         }
 
         // [[[BARD EFFECT 2]]]
-        if effects.has(PlayerStatusEffect::Bard) {
+        if effects.has(StatusEffect::Bard) {
             total += 1;
         }
 
@@ -409,8 +414,8 @@ impl BattleContext {
                 // Set up global lingering effects
                 if self.battlefield() == Battlefield::Night {
                     // [[[NIGHT SETUP]]]
-                    p1.effects.add(PlayerStatusEffect::Night);
-                    p2.effects.add(PlayerStatusEffect::Night);
+                    p1.effects.add(StatusEffect::Night);
+                    p2.effects.add(StatusEffect::Night);
                 }
 
                 // first is winner, second is loser
@@ -424,11 +429,11 @@ impl BattleContext {
                     match self.battlefield() {
                         // [[[GLADE SETUP]]]
                         Battlefield::Glade => {
-                            winner.effects.add(PlayerStatusEffect::Glade);
+                            winner.effects.add(StatusEffect::Glade);
                         }
                         // [[[MOUNTAIN SETUP]]]
                         Battlefield::Mountain => {
-                            winner.effects.add(PlayerStatusEffect::Mountain);
+                            winner.effects.add(StatusEffect::Mountain);
                         }
                         _ => {}
                     }
@@ -437,7 +442,7 @@ impl BattleContext {
                     // in adding the status effect anymore
                     // [[[BARBARIAN SETUP]]]
                     if !new_state.graveyard.has(Creature::Barbarian) {
-                        loser.effects.add(PlayerStatusEffect::Barbarian)
+                        loser.effects.add(StatusEffect::Barbarian)
                     }
                 }
 
@@ -450,11 +455,11 @@ impl BattleContext {
 
                     match self.creature(player) {
                         // [[[MERCENARY SETUP]]]
-                        Creature::Mercenary => effects.add(PlayerStatusEffect::Mercenary),
+                        Creature::Mercenary => effects.add(StatusEffect::Mercenary),
                         // [[[SEER SETUP]]]
-                        Creature::Seer => effects.add(PlayerStatusEffect::Seer),
+                        Creature::Seer => effects.add(StatusEffect::Seer),
                         // [[[BARD SETUP]]]
-                        Creature::Bard => effects.add(PlayerStatusEffect::Bard),
+                        Creature::Bard => effects.add(StatusEffect::Bard),
                         _ => {}
                     }
                 }
@@ -473,28 +478,28 @@ impl BattleContext {
 // {{{ Test helpers
 impl BattleContext {
     /// Sets the creature played by a player.
-    #[inline]
+    #[inline(always)]
     fn set_creature(&mut self, player: Player, creature: Creature) {
         let choice = player.select_mut(&mut self.main_choices);
         choice.creature = creature;
     }
 
     /// Sets the edict played by a player.
-    #[inline]
+    #[inline(always)]
     fn set_edict(&mut self, player: Player, edict: Edict) {
         let choice = player.select_mut(&mut self.main_choices);
         choice.edict = edict;
     }
 
     /// Returns a mut ref to the player effects active on some player.
-    #[inline]
-    fn player_effects_mut(&mut self, player: Player) -> &mut PlayerStatusEffects {
+    #[inline(always)]
+    fn player_effects_mut(&mut self, player: Player) -> &mut StatusEffectSet {
         &mut player.select_mut(&mut self.state.player_states).effects
     }
 
     /// Returns a mut ref to the player effects active on some player.
-    #[inline]
-    fn add_effect(&mut self, player: Player, effect: PlayerStatusEffect) {
+    #[inline(always)]
+    fn add_effect(&mut self, player: Player, effect: StatusEffect) {
         player
             .select_mut(&mut self.state.player_states)
             .effects
@@ -502,7 +507,7 @@ impl BattleContext {
     }
 
     /// Sets the main creature played by a player.
-    #[inline]
+    #[inline(always)]
     fn set_battlefield(&mut self, battlefield: Battlefield) {
         self.state.battlefields.all[self.state.battlefields.current] = battlefield;
     }
@@ -511,14 +516,10 @@ impl BattleContext {
 // {{{ Tests
 #[cfg(test)]
 mod tests {
-    use std::assert_eq;
-
     use super::*;
-    use crate::game::{
-        known_state::{Battlefields, Score},
-        types::CreatureSet,
-    };
+    use crate::game::{creature::CreatureSet, known_state::Score, battlefield::Battlefields};
     use once_cell::sync::Lazy;
+    use std::assert_eq;
 
     // {{{ Common setup
     const BASIC_STATE: Lazy<KnownState> = Lazy::new(|| KnownState {
@@ -540,8 +541,8 @@ mod tests {
     #[test]
     fn mountain_glade_setup() {
         let setups = [
-            (Battlefield::Glade, PlayerStatusEffect::Glade),
-            (Battlefield::Mountain, PlayerStatusEffect::Mountain),
+            (Battlefield::Glade, StatusEffect::Glade),
+            (Battlefield::Mountain, StatusEffect::Mountain),
         ];
 
         let mut ctx = *BASIC_BATTLE_CONTEXT;
@@ -568,7 +569,7 @@ mod tests {
         let winner = Player::Me;
         for player in Player::PLAYERS {
             let mut ctx = *BASIC_BATTLE_CONTEXT;
-            ctx.add_effect(player, PlayerStatusEffect::Glade);
+            ctx.add_effect(player, StatusEffect::Glade);
 
             let extra_reward = ctx.battle_reward(winner) - ctx.battlefield().reward();
 
@@ -584,7 +585,7 @@ mod tests {
     fn mountain_effect() {
         for player in Player::PLAYERS {
             let mut ctx = *BASIC_BATTLE_CONTEXT;
-            ctx.add_effect(player, PlayerStatusEffect::Mountain);
+            ctx.add_effect(player, StatusEffect::Mountain);
 
             // We don't want the edicts to influence the strength values.
             ctx.set_edict(player, Edict::RileThePublic);
@@ -605,7 +606,7 @@ mod tests {
         let mut ctx = *BASIC_BATTLE_CONTEXT;
         ctx.set_battlefield(Battlefield::Night);
 
-        let effect = PlayerStatusEffect::Night;
+        let effect = StatusEffect::Night;
 
         let unfinished = ctx.advance_known_state().1.get_unfinished().unwrap();
         let has_effects = unfinished.player_states.0.effects.has(effect)
@@ -619,8 +620,8 @@ mod tests {
         let mut ctx = *BASIC_BATTLE_CONTEXT;
 
         // Give the status effect to both players
-        ctx.add_effect(Player::Me, PlayerStatusEffect::Night);
-        ctx.add_effect(Player::You, PlayerStatusEffect::Night);
+        ctx.add_effect(Player::Me, StatusEffect::Night);
+        ctx.add_effect(Player::You, StatusEffect::Night);
 
         for player in Player::PLAYERS {
             assert_eq!(
@@ -677,9 +678,9 @@ mod tests {
     fn seer_mercenary_bard_setup() {
         let mut ctx = *BASIC_BATTLE_CONTEXT;
         let setups = [
-            (Creature::Seer, PlayerStatusEffect::Seer),
-            (Creature::Bard, PlayerStatusEffect::Bard),
-            (Creature::Mercenary, PlayerStatusEffect::Mercenary),
+            (Creature::Seer, StatusEffect::Seer),
+            (Creature::Bard, StatusEffect::Bard),
+            (Creature::Mercenary, StatusEffect::Mercenary),
         ];
 
         for (creature, effect) in setups {
@@ -714,7 +715,7 @@ mod tests {
             .player_states
             .1
             .effects
-            .has(PlayerStatusEffect::Seer);
+            .has(StatusEffect::Seer);
 
         assert!(!has_effect, "Seer effect still active under rogue");
     }
@@ -811,7 +812,7 @@ mod tests {
     fn barbarian_setup() {
         let mut ctx = *BASIC_BATTLE_CONTEXT;
         let loser = Player::You; // Player::Me wins the example battle
-        let effect = PlayerStatusEffect::Barbarian;
+        let effect = StatusEffect::Barbarian;
 
         let effect_while_not_in_grave = loser
             .select(
@@ -853,7 +854,7 @@ mod tests {
         let mut ctx = *BASIC_BATTLE_CONTEXT;
         let previous_loser = Player::Me;
 
-        ctx.add_effect(previous_loser, PlayerStatusEffect::Barbarian);
+        ctx.add_effect(previous_loser, StatusEffect::Barbarian);
 
         // We do not want the edicts to tinker with the strength values
         ctx.set_edict(Player::Me, Edict::RileThePublic);

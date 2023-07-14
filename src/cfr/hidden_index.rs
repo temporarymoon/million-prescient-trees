@@ -1,6 +1,7 @@
 use std::debug_assert_eq;
 
-use crate::game::types::{CreatureChoice, CreatureSet, UserCreatureChoice};
+use crate::game::creature::CreatureSet;
+use crate::game::creature_choice::{CreatureChoice, UserCreatureChoice};
 use crate::helpers::bitfield::Bitfield;
 use crate::helpers::choose::choose;
 use crate::helpers::ranged::MixRanged;
@@ -35,13 +36,13 @@ impl HiddenIndex {
     // }}}
     // {{{ Main phase
     /// Encodes all hidden informations known by a player during the main phase.
-    #[inline]
+    #[inline(always)]
     pub fn encode_main_index(hand: CreatureSet, graveyard: CreatureSet) -> Self {
         Self(Self::encode_hand_contents(hand, !graveyard))
     }
 
     /// Inverse of `encode_main_index`.
-    #[inline]
+    #[inline(always)]
     pub fn decode_main_index(
         self,
         graveyard: CreatureSet,
@@ -51,7 +52,7 @@ impl HiddenIndex {
     }
 
     /// One more than the maximum value of `encode_main_index`
-    #[inline]
+    #[inline(always)]
     pub fn main_index_count(hand_size: usize, graveyard: CreatureSet) -> usize {
         (!graveyard).hands_of_size(hand_size)
     }
@@ -130,7 +131,7 @@ impl HiddenIndex {
     }
 
     /// One more than the maximum value of `encode_sabotage_seer_index`
-    #[inline]
+    #[inline(always)]
     pub fn sabotage_seer_index_count(
         hand_size: usize,
         graveyard: CreatureSet,
@@ -150,7 +151,7 @@ impl HiddenIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{game::types::Creature, helpers::bitfield::Bitfield};
+    use crate::{game::creature::Creature, helpers::bitfield::Bitfield};
     use std::assert_eq;
 
     // {{{ Main phase

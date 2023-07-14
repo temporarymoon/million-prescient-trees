@@ -52,7 +52,7 @@ impl<'a> DecisionVector<'a> {
     }
 
     /// Returns the number of actions we can take at this node.
-    #[inline]
+    #[inline(always)]
     pub fn len(&self) -> usize {
         self.regret_sum.len()
     }
@@ -63,7 +63,7 @@ impl<'a> DecisionVector<'a> {
     /// # Arguments
     ///
     /// * `index` - The index of the strategy to compute
-    #[inline]
+    #[inline(always)]
     pub fn strategy(&self, index: usize) -> f32 {
         if self.regret_positive_magnitude > 0.0 {
             f32::max(self.regret_sum[index], 0.0) / self.regret_positive_magnitude

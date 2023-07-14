@@ -10,13 +10,13 @@ pub struct Bitfield(u16);
 
 // {{{ Main definitions
 impl Bitfield {
-    #[inline]
+    #[inline(always)]
     pub const fn new(x: u16) -> Self {
         Bitfield(x)
     }
 
     /// Construct a bitfield containing a single bit.
-    #[inline]
+    #[inline(always)]
     pub fn singleton<T: Into<u8>>(x: T) -> Self {
         let u = x.into();
         assert!(u <= 16);
@@ -92,13 +92,13 @@ impl Bitfield {
     }
 
     /// Sets all bits to one.
-    #[inline]
+    #[inline(always)]
     pub fn fill(&mut self) {
         self.0 = u16::MAX;
     }
 
     /// Sets all bits to zero.
-    #[inline]
+    #[inline(always)]
     pub fn clear(&mut self) {
         self.0 = 0;
     }
@@ -265,13 +265,13 @@ pub mod one_encoding {
         ///
         /// The result fits inside an u16,
         /// but we pass around an `usize` for convenience.
-        #[inline]
+        #[inline(always)]
         pub fn encode_ones(self) -> usize {
             LOOKUP_TABLES.0[self.0 as usize] as usize
         }
 
         /// Readd the information removed by `encode_ones`.
-        #[inline]
+        #[inline(always)]
         pub fn decode_ones(encoded: usize, ones: usize) -> Option<Self> {
             if encoded >= *LOOKUP_TABLES.2.get(ones)? {
                 return None;
@@ -381,7 +381,7 @@ impl Not for Bitfield {
     /// ```
     /// invert(0b010110) // 101001
     /// ```
-    #[inline]
+    #[inline(always)]
     fn not(self) -> Self::Output {
         Bitfield(!self.0)
     }
@@ -397,7 +397,7 @@ impl BitOr for Bitfield {
     /// ```
     /// 0b0101 | 0b1010 // 0xF
     /// ```
-    #[inline]
+    #[inline(always)]
     fn bitor(self, rhs: Self) -> Self::Output {
         Bitfield(self.0 | rhs.0)
     }
@@ -413,7 +413,7 @@ impl BitAnd for Bitfield {
     /// ```
     /// 0b0111 & 0b1010 // 0x0010
     /// ```
-    #[inline]
+    #[inline(always)]
     fn bitand(self, rhs: Self) -> Self::Output {
         Bitfield(self.0 & rhs.0)
     }

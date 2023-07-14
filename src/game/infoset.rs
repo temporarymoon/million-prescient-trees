@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use super::types::{Creature, Edict};
+use super::{creature::Creature, edict::Edict};
 
 /// Keeps track of all the choices made so far
 /// which the current player *knows* about.
