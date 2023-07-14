@@ -1,7 +1,6 @@
-use crate::helpers::bitfield::Bitfield;
+use crate::{helpers::bitfield::Bitfield16, make_bitfield};
 use std::fmt::{self, Display};
 
-// {{{ StatusEffect
 /// Different kind of lingering effects affecting a given player
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub enum StatusEffect {
@@ -27,7 +26,7 @@ pub enum StatusEffect {
 }
 
 impl StatusEffect {
-    pub const PLAYER_STATUS_EFFECTS: [StatusEffect; 6] = [
+    pub const STATUS_EFFECTS: [StatusEffect; 6] = [
         StatusEffect::Mountain,
         StatusEffect::Glade,
         StatusEffect::Seer,
@@ -42,31 +41,12 @@ impl Display for StatusEffect {
         write!(f, "{:?}", self)
     }
 }
-// }}}
-// {{{ StatusEffectSet
-#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug, Default)]
-pub struct StatusEffectSet(pub Bitfield);
 
-impl StatusEffectSet {
-    #[inline(always)]
-    pub fn all() -> Self {
-        StatusEffectSet(Bitfield::n_ones(StatusEffect::PLAYER_STATUS_EFFECTS.len()))
-    }
-
-    #[inline(always)]
-    pub fn has(self, effect: StatusEffect) -> bool {
-        self.0.has(effect as usize)
-    }
-
-    /// Sets all bits to zero.
-    #[inline(always)]
-    pub fn clear(&mut self) {
-        self.0.clear()
-    }
-
-    #[inline(always)]
-    pub fn add(&mut self, effect: StatusEffect) {
-        self.0.add(effect as usize)
-    }
+impl From<usize> for StatusEffect {
+   fn from(value: usize) -> Self {
+       StatusEffect::STATUS_EFFECTS[value]
+   } 
 }
-// }}}
+
+make_bitfield!(StatusEffectSet, StatusEffect, u8, 7, StatusEffectSetIterator, Bitfield16, true);
+

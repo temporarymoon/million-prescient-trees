@@ -1,5 +1,5 @@
 use super::creature::{Creature, CreatureSet};
-use crate::helpers::bitfield::Bitfield;
+use crate::helpers::bitfield::Bitfield16;
 
 // {{{ UserCreatureChoice
 /// User facing version of `CreatureChoice`.
@@ -68,7 +68,7 @@ impl CreatureChoice {
     ) -> Option<UserCreatureChoice> {
         let length = UserCreatureChoice::len_from_status(seer_active);
         let decoded =
-            CreatureSet::decode_relative_to(Bitfield::decode_ones(self.0, length)?, possibilities)?;
+            CreatureSet::decode_relative_to(Bitfield16::decode_ones(self.0, length)?, possibilities)?;
 
         let mut creatures = decoded.into_iter();
 

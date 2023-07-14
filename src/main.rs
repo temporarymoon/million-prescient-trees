@@ -7,13 +7,15 @@
 #![feature(const_trait_impl)]
 #![allow(dead_code)]
 
-use helpers::bitfield::Bitfield;
+use helpers::bitfield::Bitfield16;
 use std::println;
 
-mod helpers;
-mod game;
+use crate::game::creature::CreatureSet;
+
 mod ai;
 mod cfr;
+mod game;
+mod helpers;
 
 fn main() {
     // let mut edicts = EdictSet::all();
@@ -58,7 +60,7 @@ fn main() {
 
     for c in 0..=16 {
         for i in 0.. {
-            match Bitfield::decode_ones(i, c) {
+            match Bitfield16::decode_ones(i, c) {
                 Some(inner) => println!("{: >2}: {: <5} {:?}", c, i, inner),
                 None => break,
             }

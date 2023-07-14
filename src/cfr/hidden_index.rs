@@ -2,7 +2,7 @@ use std::debug_assert_eq;
 
 use crate::game::creature::CreatureSet;
 use crate::game::creature_choice::{CreatureChoice, UserCreatureChoice};
-use crate::helpers::bitfield::Bitfield;
+use crate::helpers::bitfield::Bitfield16;
 use crate::helpers::choose::choose;
 use crate::helpers::ranged::MixRanged;
 
@@ -31,7 +31,7 @@ impl HiddenIndex {
         possibilities: CreatureSet,
         hand_size: usize,
     ) -> Option<CreatureSet> {
-        CreatureSet::decode_relative_to(Bitfield::decode_ones(index, hand_size)?, possibilities)
+        CreatureSet::decode_relative_to(Bitfield16::decode_ones(index, hand_size)?, possibilities)
     }
     // }}}
     // {{{ Main phase
@@ -151,7 +151,7 @@ impl HiddenIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{game::creature::Creature, helpers::bitfield::Bitfield};
+    use crate::game::creature::Creature;
     use std::assert_eq;
 
     // {{{ Main phase
@@ -166,8 +166,8 @@ mod tests {
                 // Make sure no cards from therhand are in the graveyard.
                 let i = i & !j;
                 // Construct bitfields
-                let graveyard = CreatureSet(Bitfield::new(j));
-                let hand = CreatureSet(Bitfield::new(i));
+                let graveyard = CreatureSet::new(j);
+                let hand = CreatureSet::new(i);
                 let encoded = HiddenIndex::encode_main_index(hand, graveyard);
 
                 assert_eq!(encoded.decode_main_index(graveyard, hand.len()), Some(hand));
@@ -188,8 +188,8 @@ mod tests {
                 let i = i & !j;
 
                 // Construct bitfields
-                let graveyard = CreatureSet(Bitfield::new(j));
-                let hand = CreatureSet(Bitfield::new(i));
+                let graveyard = CreatureSet::new(j);
+                let hand = CreatureSet::new(i);
 
                 // Generate creature choice
                 for creature_one in Creature::CREATURES {

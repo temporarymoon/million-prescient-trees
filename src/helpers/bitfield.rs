@@ -1,205 +1,359 @@
 use const_for::const_for;
-use core::fmt;
-use std::ops::{BitOr, Not, BitAnd};
 
-/// Bitfield containing up to 16 bits.
-/// Internally used to implement stuff like creature sets,
-/// edict sets, effect sets, and more.
-#[derive(PartialEq, Eq, Hash, Clone, Copy)]
-pub struct Bitfield(u16);
+// {{{ Main macro definition
+#[macro_export]
+macro_rules! make_bitfield {
+    (
+        $name: ident, 
+        $element: ty, 
+        $repr: ty, 
+        $bits: expr, 
+        $iterator: ident, 
+        $index_bitfield: ty, 
+        $default_is_empty: literal
+    ) => {
+        #[derive(PartialEq, Eq, Hash, Clone, Copy)]
+        pub struct $name($repr);
 
-// {{{ Main definitions
-impl Bitfield {
-    #[inline(always)]
-    pub const fn new(x: u16) -> Self {
-        Bitfield(x)
-    }
+        // {{{ Main impl block
+        impl $name {
+            /// The maximum valid value this bitfield can take.
+            pub const MAX: $repr = if $bits == <$repr>::BITS {
+                <$repr>::MAX
+            } else {
+                (1 << $bits) - 1
+            };
 
-    /// Construct a bitfield containing a single bit.
-    #[inline(always)]
-    pub fn singleton<T: Into<u8>>(x: T) -> Self {
-        let u = x.into();
-        assert!(u <= 16);
-        Bitfield(1 << u)
-    }
+            #[inline(always)]
+            pub const fn new(x: $repr) -> Self {
+                debug_assert!(x <= Self::MAX);
+                Self(x)
+            }
 
-    /// Returns a bitfield with a given amount of ones at the end.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// n_ones(4) // 0x000F
-    /// ```
-    pub fn n_ones(n: usize) -> Self {
-        if n == 16 {
-            Bitfield::all()
-        } else {
-            Bitfield::new((1 << n) - 1)
+            /// Construct a bitfield containing a single bit.
+            #[inline(always)]
+            pub fn singleton(x: $element) -> Self {
+                Self::new(1 << (x as $repr))
+            }
+
+            /// Returns a bitfield containing only zeros.
+            #[inline(always)]
+            pub fn empty() -> Self {
+                Self::new(0)
+            }
+
+            /// Returns a bitfield containing only ones.
+            #[inline(always)]
+            pub fn all() -> Self {
+                Self::new(Self::MAX)
+            }
+
+            /// Checks if the bitfield contains an one at some index.
+            ///
+            /// # Examples
+            ///
+            /// ```
+            /// has(0b0100, 1) // false
+            /// has(0b0100, 2) // true
+            /// ```
+            #[inline(always)]
+            pub const fn has(self, index: $element) -> bool {
+                self.has_raw(index as usize)
+            }
+
+            /// Similar to `has`, but accepts integers instead of `$element`.
+            #[inline(always)]
+            pub const fn has_raw(self, index: usize) -> bool {
+                ((self.0 >> (index as $repr)) & 1) != 0
+            }
+
+            /// Adds a bit to a bitfield.
+            /// Errors out if the bit is already there.
+            ///
+            /// # Examples
+            ///
+            /// ```
+            /// add(0b0100, 1) // 0b0110
+            /// ```
+            pub fn add(&mut self, index: $element) {
+                if self.has(index) {
+                    panic!(
+                        "Trying to add index {} that is already present in {:b}",
+                        index, self.0
+                    )
+                }
+
+                self.0 |= 1 << (index as $repr);
+            }
+
+            /// Similar to `add`, but accepts integers instead of `$element`.
+            pub fn add_raw(&mut self, index: usize) {
+                if self.has_raw(index) {
+                    panic!(
+                        "Trying to add index {} that is already present in {:b}",
+                        index, self.0
+                    )
+                }
+
+                self.0 |= 1 << (index as $repr);
+            }
+
+            /// Removes a bit from a bitfield.
+            /// Errors out if the bit is already there.
+            /// # Examples
+            ///
+            /// ```
+            /// add(0b0110, 1) // 0b0100
+            /// ```
+            pub fn remove(&mut self, index: $element) {
+                if !self.has(index) {
+                    panic!(
+                        "Trying to remove index {} that is not present {:b}",
+                        index, self.0
+                    )
+                }
+
+                self.0 ^= 1 << (index as $repr)
+            }
+
+            /// Sets all bits to one.
+            #[inline(always)]
+            pub fn fill(&mut self) {
+                self.0 = Self::MAX;
+            }
+
+            /// Sets all bits to zero.
+            #[inline(always)]
+            pub fn clear(&mut self) {
+                self.0 = 0;
+            }
+
+            /// Returns the number of ones inside self.
+            ///
+            /// # Examples
+            ///
+            /// ```
+            /// len(0b101011) // 4
+            /// ```
+            pub const fn len(self) -> usize {
+                self.0.count_ones() as usize
+            }
+
+            /// Return the number of ones between a given index and the end.
+            ///
+            /// # Arguments
+            ///
+            /// * `target` - The index to count ones after.
+            ///
+            /// # Examples
+            ///
+            /// ```
+            /// indexof(0b0100, 2) // 0
+            /// indexof(0b0101, 2) // 1
+            /// indexof(0b0111, 2) // 2
+            /// ```
+            pub fn indexof(self, target: $element) -> usize {
+                self.indexof_raw(target as usize)
+            }
+
+            /// Similar to `indexof`, but accepts integers instead of `$element`.
+            pub fn indexof_raw(self, target: usize) -> usize {
+                (self.0 & ((1 << (target as $repr)) - 1)).count_ones() as usize
+            }
+
+            /// Returns the position (starting from the end) of the nth bit.
+            ///
+            /// # Examples
+            ///
+            /// ```
+            /// index(0b010101, 2) // Some(4)
+            /// index(0b010101, 3) // Some(4)
+            /// ```
+            pub fn index(self, index: usize) -> Option<$element> {
+                (0..$bits)
+                    .filter(|x| self.has_raw(*x))
+                    .nth(index)
+                    .map(|i| <$element>::from(i))
+            }
+
+            /// Encode a bitfield as a subset of another bitfield.
+            /// Bits are shifted to the left such that all zero bits in the super-bitfield
+            /// are not present in the sub-bitfield.
+            ///
+            /// Properties:
+            /// - the empty bitfield acts as a left zero elements
+            /// - the full bitfield acts as a right identity
+            pub fn encode_relative_to(self, other: Self) -> $index_bitfield {
+                let mut result = <$index_bitfield>::empty();
+
+                for i in 0..$bits {
+                    if self.has_raw(i) {
+                        assert!(
+                            other.has_raw(i),
+                            "{:?} contains bits not contained in {:?}",
+                            self,
+                            other
+                        );
+
+                        result.add(other.indexof_raw(i))
+                    }
+                }
+
+                result
+            }
+
+            /// Inverse of `encode_relative_to`.
+            pub fn decode_relative_to(encoded: $index_bitfield, other: Self) -> Option<Self> {
+                let mut result = Self::empty();
+
+                for i in 0..$bits {
+                    if encoded.has_raw(i) {
+                        result.add_raw(other.index(i as usize)? as usize);
+                    }
+                }
+
+                Some(result)
+            }
         }
-    }
-
-    /// Returns a bitfield containing only ones.
-    pub fn all() -> Self {
-        Bitfield::new(u16::MAX)
-    }
-
-    /// Checks if the bitfield contains an one at some index.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// has(0b0100, 1) // false
-    /// has(0b0100, 2) // true
-    /// ```
-    pub const fn has(self, index: usize) -> bool {
-        ((self.0 >> (index as u16)) & 1) != 0
-    }
-
-    /// Adds a bit to a bitfield.
-    /// Errors out if the bit is already there.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// add(0b0100, 1) // 0b0110
-    /// ```
-    pub fn add(&mut self, index: usize) {
-        if self.has(index) {
-            panic!(
-                "Trying to remove index {} that's not here {:b}",
-                index, self.0
-            )
-        }
-
-        self.0 = self.0 | (1 << (index as u16))
-    }
-
-    /// Removes a bit from a bitfield.
-    /// Errors out if the bit is already there.
-    /// # Examples
-    ///
-    /// ```
-    /// add(0b0110, 1) // 0b0100
-    /// ```
-    pub fn remove(&mut self, index: usize) {
-        if !self.has(index) {
-            panic!(
-                "Trying to remove index {} that's not here {:b}",
-                index, self.0
-            )
-        }
-        self.0 = self.0 ^ (1 << (index as u16))
-    }
-
-    /// Sets all bits to one.
-    #[inline(always)]
-    pub fn fill(&mut self) {
-        self.0 = u16::MAX;
-    }
-
-    /// Sets all bits to zero.
-    #[inline(always)]
-    pub fn clear(&mut self) {
-        self.0 = 0;
-    }
-
-    /// Flips the last n bits.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// invert_last_n(0b0110, 2) // 0b0101
-    /// ```
-    pub fn invert_last_n(self, n: usize) -> Self {
-        if n == 16 {
-            !self
-        } else {
-            let mask = (1 << n) - 1;
-            Bitfield(self.0 ^ mask)
-        }
-    }
-
-    /// Returns the number of ones inside self.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// len(0b101011) // 4
-    /// ```
-    pub const fn len(self) -> usize {
-        self.0.count_ones() as usize
-    }
-
-    /// Return the number of ones between a given index and the end.
-    ///  
-    /// # Arguments
-    ///
-    /// * `target` - The index to count ones after.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// count_from_end(0b0100, 2) // 0
-    /// count_from_end(0b0101, 2) // 1
-    /// count_from_end(0b0111, 2) // 2
-    /// ```
-    pub fn count_from_end(self, target: usize) -> usize {
-        (self.0 & ((1 << target) - 1)).count_ones() as usize
-    }
-
-    /// Returns the position (starting from the end) of the nth bit.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// lookup_from_end(0b010101, 2) // Some(4)
-    /// lookup_from_end(0b010101, 3) // Some(4)
-    /// ```
-    pub fn lookup_from_end(self, index: usize) -> Option<usize> {
-        (0..16)
-            .enumerate()
-            .filter(|(_, x)| self.has(*x))
-            .nth(index)
-            .map(|(i, _)| i)
-    }
-
-    /// Encode a bitfield as a subset of another bitfield.
-    /// Bits are shifted to the left such that all zero bits in the super-bitfield
-    /// are not present in the sub-bitfield.
-    ///
-    /// Properties:
-    /// - the empty bitfield acts as a left zero elements
-    /// - the full bitfield acts as a right identity
-    pub fn encode_relative_to(self, other: Self) -> Self {
-        let mut result = Bitfield::default();
-
-        for i in 0..16 {
-            if self.has(i) {
-                assert!(
-                    other.has(i),
-                    "{:?} contains bits not contained in {:?}",
-                    self,
-                    other
-                );
-
-                result.add(other.count_from_end(i))
+        // }}}
+        // {{{ Trait implementations
+        impl std::fmt::Debug for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "{:b}", self.0)
             }
         }
 
-        result
-    }
+        impl std::ops::Not for $name {
+            type Output = Self;
 
-    /// Inverse of `encode_relative_to`.
-    pub fn decode_relative_to(self, other: Bitfield) -> Option<Self> {
-        let mut result = Bitfield::default();
-
-        for i in 0..16 {
-            if self.has(i) {
-                result.add(other.lookup_from_end(i)?);
+            /// Flips all the bits inside bitfield.
+            ///
+            /// # Examples
+            ///
+            /// ```
+            /// invert(0b010110) // 101001
+            /// ```
+            #[inline(always)]
+            fn not(self) -> Self::Output {
+                Self(!self.0 & Self::MAX)
             }
         }
 
-        Some(result)
+        impl std::ops::BitOr for $name {
+            type Output = Self;
+
+            /// Merges the bits from two bitfields
+            ///
+            /// # Examples
+            ///
+            /// ```
+            /// 0b0101 | 0b1010 // 0xF
+            /// ```
+            #[inline(always)]
+            fn bitor(self, rhs: Self) -> Self::Output {
+                Self(self.0 | rhs.0)
+            }
+        }
+
+        impl std::ops::BitAnd for $name {
+            type Output = Self;
+
+            /// Returns the common bits between two bitfields
+            ///
+            /// # Examples
+            ///
+            /// ```
+            /// 0b0111 & 0b1010 // 0x0010
+            /// ```
+            #[inline(always)]
+            fn bitand(self, rhs: Self) -> Self::Output {
+                Self(self.0 & rhs.0)
+            }
+        }
+        // }}}
+        // {{{ Iterator
+        pub struct $iterator {
+            index: usize,
+            index_end: usize,
+            bitfield: $name,
+        }
+
+        impl Iterator for $iterator {
+            type Item = $element;
+
+            fn next(&mut self) -> Option<Self::Item> {
+                while self.index <= self.index_end {
+                    if self.bitfield.has_raw(self.index) {
+                        let result = <$element>::from(self.index);
+                        self.index += 1;
+                        return Some(result);
+                    } else {
+                        self.index += 1;
+                    }
+                }
+
+                None
+            }
+        }
+
+        impl DoubleEndedIterator for $iterator {
+            fn next_back(&mut self) -> Option<Self::Item> {
+                while self.index <= self.index_end {
+                    if self.bitfield.has_raw(self.index_end) {
+                        let result = <$element>::from(self.index_end);
+                        self.index_end -= 1;
+                        return Some(result);
+                    } else {
+                        self.index_end -= 1;
+                    }
+                }
+
+                None
+            }
+        }
+
+        impl IntoIterator for $name {
+            type Item = $element;
+            type IntoIter = $iterator;
+
+            fn into_iter(self) -> Self::IntoIter {
+                $iterator {
+                    index: 0,
+                    index_end: 15,
+                    bitfield: self,
+                }
+            }
+        }
+        // }}}
+        // {{{ Default implementation
+        impl Default for $name {
+            fn default() -> Self {
+                if $default_is_empty {
+                    Self::empty()
+                } else {
+                    Self::all()
+                }
+            }
+        }
+        // }}}
+    };
+}
+// }}}
+// {{{ Main definition
+make_bitfield!(
+    Bitfield16,
+    usize,
+    u16,
+    16,
+    Bitfield16Iterator,
+    Bitfield16,
+    true
+);
+
+impl Bitfield16 {
+    /// A nicer form of `decode_relative_to`.
+    pub fn decode_self_relative_to(self: Self, other: Self) -> Option<Self> {
+        Self::decode_relative_to(self, other)
     }
 }
 // }}}
@@ -248,7 +402,7 @@ pub mod one_encoding {
         let mut lengths = [0 as usize; BIT_CASES];
 
         const_for!(decoded in 0..DECODED_COUNT => {
-            let count = Bitfield::new(decoded as u16).len() as usize;
+            let count = Bitfield16::new(decoded as u16).len() as usize;
             let encoded = lengths[count];
             decode[MAGIC_INDICES[count] + encoded] = decoded as u16;
             encode[decoded] = encoded as u16;
@@ -258,7 +412,7 @@ pub mod one_encoding {
         (encode, decode, lengths)
     };
 
-    impl Bitfield {
+    impl Bitfield16 {
         /// Efficiently assume the number of ones in the bit
         /// representation of a number is known, removing such
         /// useless information.
@@ -276,7 +430,7 @@ pub mod one_encoding {
             if encoded >= *LOOKUP_TABLES.2.get(ones)? {
                 return None;
             } else {
-                return Some(Bitfield::new(
+                return Some(Bitfield16::new(
                     *LOOKUP_TABLES.1.get(MAGIC_INDICES.get(ones)? + encoded)?,
                 ));
             }
@@ -306,11 +460,11 @@ pub mod one_encoding {
         #[test]
         fn encode_decode_identity() {
             for i in 0..=u16::MAX {
-                let bitfield = Bitfield::new(i);
+                let bitfield = Bitfield16::new(i);
 
                 assert_eq!(
                     Some(bitfield),
-                    Bitfield::decode_ones(bitfield.encode_ones(), bitfield.len())
+                    Bitfield16::decode_ones(bitfield.encode_ones(), bitfield.len())
                 );
             }
         }
@@ -320,7 +474,7 @@ pub mod one_encoding {
             for ones in 0..=16 {
                 for i in 0..=(u16::MAX as usize) {
                     let decode_encode_i =
-                        Bitfield::decode_ones(i, ones).map(|bitfield| bitfield.encode_ones());
+                        Bitfield16::decode_ones(i, ones).map(|bitfield| bitfield.encode_ones());
 
                     match decode_encode_i {
                         None => break,
@@ -333,145 +487,6 @@ pub mod one_encoding {
     // }}}
 }
 // }}}
-// {{{ Trait implementations
-impl Default for Bitfield {
-    fn default() -> Self {
-        Bitfield::new(0)
-    }
-}
-
-impl fmt::Debug for Bitfield {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:b}", self.0)
-    }
-}
-
-impl Into<u64> for Bitfield {
-    fn into(self) -> u64 {
-        return self.0.into();
-    }
-}
-
-impl Into<u32> for Bitfield {
-    fn into(self) -> u32 {
-        return self.0.into();
-    }
-}
-
-impl Into<usize> for Bitfield {
-    fn into(self) -> usize {
-        return self.0.into();
-    }
-}
-
-impl Into<u16> for Bitfield {
-    fn into(self) -> u16 {
-        return self.0.into();
-    }
-}
-
-impl Not for Bitfield {
-    type Output = Self;
-
-    /// Flips all the bits inside bitfield.
-    /// Equivalent to invert_last_n(16).
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// invert(0b010110) // 101001
-    /// ```
-    #[inline(always)]
-    fn not(self) -> Self::Output {
-        Bitfield(!self.0)
-    }
-}
-
-impl BitOr for Bitfield {
-    type Output = Self;
-
-    /// Merges the bits from two bitfields
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// 0b0101 | 0b1010 // 0xF
-    /// ```
-    #[inline(always)]
-    fn bitor(self, rhs: Self) -> Self::Output {
-        Bitfield(self.0 | rhs.0)
-    }
-}
-
-impl BitAnd for Bitfield {
-    type Output = Self;
-
-    /// Returns the common bits between two bitfields
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// 0b0111 & 0b1010 // 0x0010
-    /// ```
-    #[inline(always)]
-    fn bitand(self, rhs: Self) -> Self::Output {
-        Bitfield(self.0 & rhs.0)
-    }
-}
-// }}}
-// {{{ BitfieldIterator
-pub struct BitfieldIterator {
-    index: usize,
-    index_end: usize,
-    bitfield: Bitfield,
-}
-
-impl Iterator for BitfieldIterator {
-    type Item = usize;
-    fn next(&mut self) -> Option<Self::Item> {
-        while self.index <= self.index_end {
-            if self.bitfield.has(self.index) {
-                let result = self.index;
-                self.index += 1;
-                return Some(result);
-            } else {
-                self.index += 1;
-            }
-        }
-
-        None
-    }
-}
-
-impl DoubleEndedIterator for BitfieldIterator {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        while self.index <= self.index_end {
-            if self.bitfield.has(self.index_end) {
-                let result = self.index_end;
-                self.index_end -= 1;
-                return Some(result);
-            } else {
-                self.index_end -= 1;
-            }
-        }
-
-        None
-    }
-}
-
-impl IntoIterator for Bitfield {
-    type Item = usize;
-    type IntoIter = BitfieldIterator;
-
-    fn into_iter(self) -> Self::IntoIter {
-        BitfieldIterator {
-            index: 0,
-            index_end: 15,
-            bitfield: self,
-        }
-    }
-}
-// }}}
 // {{{ Tests
 #[cfg(test)]
 mod tests {
@@ -481,13 +496,13 @@ mod tests {
 
     #[test]
     fn all_examples() {
-        assert_eq!(Bitfield::all(), Bitfield::new(0xFFFF));
+        assert_eq!(Bitfield16::all(), Bitfield16::new(0xFFFF));
     }
 
     #[test]
     fn add_remove_inverses() {
         for i in 0..=u16::MAX {
-            let bitfield = Bitfield::new(i);
+            let bitfield = Bitfield16::new(i);
 
             for j in 0..16 {
                 let mut clone = bitfield.clone();
@@ -508,7 +523,7 @@ mod tests {
     #[test]
     fn add_implies_has() {
         for i in 0..=u16::MAX {
-            let bitfield = Bitfield::new(i);
+            let bitfield = Bitfield16::new(i);
 
             for j in 0..16 {
                 let mut clone = bitfield.clone();
@@ -523,7 +538,7 @@ mod tests {
     #[test]
     fn remove_implies_not_has() {
         for i in 0..=u16::MAX {
-            let bitfield = Bitfield::new(i);
+            let bitfield = Bitfield16::new(i);
 
             for j in 0..16 {
                 let mut clone = bitfield.clone();
@@ -536,60 +551,35 @@ mod tests {
     }
 
     #[test]
-    fn invert_last_n_self_inverse() {
-        for i in 0..=u16::MAX {
-            let bitfield = Bitfield::new(i);
-
-            for i in 0..16 {
-                assert_eq!(bitfield.invert_last_n(i).invert_last_n(i), bitfield);
-            }
-        }
-    }
-
-    #[test]
-    fn count_from_end_examples() {
-        assert_eq!(Bitfield::new(0b0100).count_from_end(2), 0);
-        assert_eq!(Bitfield::new(0b0101).count_from_end(2), 1);
-        assert_eq!(Bitfield::new(0b0110).count_from_end(2), 1);
-        assert_eq!(Bitfield::new(0b0111).count_from_end(2), 2);
-    }
-
-    #[test]
-    fn n_ones_examples() {
-        assert_eq!(Bitfield::n_ones(16), Bitfield::all());
-        assert_eq!(Bitfield::n_ones(5), Bitfield::new(0x1F));
-    }
-
-    #[test]
-    fn invert_last_n_examples() {
-        assert_eq!(
-            Bitfield::new(0b0101).invert_last_n(3),
-            Bitfield::new(0b0010)
-        );
+    fn indexof_examples() {
+        assert_eq!(Bitfield16::new(0b0100).indexof(2), 0);
+        assert_eq!(Bitfield16::new(0b0101).indexof(2), 1);
+        assert_eq!(Bitfield16::new(0b0110).indexof(2), 1);
+        assert_eq!(Bitfield16::new(0b0111).indexof(2), 2);
     }
 
     #[test]
     fn len_examples() {
-        assert_eq!(0, Bitfield::default().len());
-        assert_eq!(5, Bitfield::new(0b01011011).len());
-        assert_eq!(16, Bitfield::all().len());
+        assert_eq!(0, Bitfield16::default().len());
+        assert_eq!(5, Bitfield16::new(0b01011011).len());
+        assert_eq!(16, Bitfield16::all().len());
     }
 
     #[test]
-    fn lookup_from_end_examples() {
-        assert_eq!(Some(4), Bitfield::new(0b01011011).lookup_from_end(3));
-        assert_eq!(None, Bitfield::new(0b0101).lookup_from_end(2));
+    fn index_examples() {
+        assert_eq!(Some(4), Bitfield16::new(0b01011011).index(3));
+        assert_eq!(None, Bitfield16::new(0b0101).index(2));
     }
 
     #[test]
-    fn lookup_from_end_smaller_than_count_always_just() {
+    fn index_smaller_than_count_always_just() {
         for i in 0..=u16::MAX {
             for j in 0..16 {
-                let bitfield = Bitfield::new(i);
+                let bitfield = Bitfield16::new(i);
 
                 if bitfield.has(j) {
-                    for index in 0..bitfield.count_from_end(j) {
-                        assert!(bitfield.lookup_from_end(index).is_some())
+                    for index in 0..bitfield.indexof(j) {
+                        assert!(bitfield.index(index).is_some())
                     }
                 }
             }
@@ -597,67 +587,48 @@ mod tests {
     }
 
     #[test]
-    fn lookup_from_end_count_from_end_inverses() {
+    fn index_indexof_inverses() {
         for i in 0..=u16::MAX {
             for j in 0..16 {
-                let bitfield = Bitfield::new(i);
+                let bitfield = Bitfield16::new(i);
 
                 if bitfield.has(j) {
-                    assert_eq!(
-                        Some(j),
-                        bitfield.lookup_from_end(bitfield.count_from_end(j))
-                    )
+                    assert_eq!(Some(j), bitfield.index(bitfield.indexof(j)))
                 }
             }
         }
     }
 
     #[test]
-    fn invert_is_invert_last_16() {
-        for i in 0..=u16::MAX {
-            let bitfield = Bitfield::new(i);
-            assert_eq!(!bitfield, bitfield.invert_last_n(16))
-        }
-    }
-
-    #[test]
-    fn invert_last_0_is_identity() {
-        for i in 0..=u16::MAX {
-            let bitfield = Bitfield::new(i);
-            assert_eq!(bitfield.invert_last_n(0), bitfield)
-        }
-    }
-
-    #[test]
     fn union_with_inverse_is_all() {
         for i in 0..=u16::MAX {
-            let bitfield = Bitfield::new(i);
-            assert_eq!(bitfield | !bitfield, Bitfield::all())
+            let bitfield = Bitfield16::new(i);
+            assert_eq!(bitfield | !bitfield, Bitfield16::all())
         }
     }
 
     #[test]
     fn union_with_inverse_is_zero() {
         for i in 0..=u16::MAX {
-            let bitfield = Bitfield::new(i);
-            assert_eq!(bitfield & !bitfield, Bitfield::default())
+            let bitfield = Bitfield16::new(i);
+            assert_eq!(bitfield & !bitfield, Bitfield16::default())
         }
     }
 
     #[test]
     fn encode_relative_to_empty_left_zero_elements() {
-        let empty = Bitfield::default();
+        let empty = Bitfield16::default();
         for i in 0..=u16::MAX {
-            let bitfield = Bitfield::new(i);
+            let bitfield = Bitfield16::new(i);
             assert_eq!(empty.encode_relative_to(bitfield), empty)
         }
     }
 
     #[test]
     fn encode_relative_to_full_right_identity() {
-        let full = Bitfield::all();
+        let full = Bitfield16::all();
         for i in 0..=u16::MAX {
-            let bitfield = Bitfield::new(i);
+            let bitfield = Bitfield16::new(i);
             assert_eq!(bitfield.encode_relative_to(full), bitfield)
         }
     }
@@ -665,16 +636,16 @@ mod tests {
     #[test]
     fn encode_relative_to_examples() {
         assert_eq!(
-            Bitfield::new(0b100010).encode_relative_to(Bitfield::new(0b101011)),
-            Bitfield::new(0b1010)
+            Bitfield16::new(0b100010).encode_relative_to(Bitfield16::new(0b101011)),
+            Bitfield16::new(0b1010)
         );
     }
 
     #[test]
     fn decode_relative_to_examples() {
         assert_eq!(
-            Bitfield::new(0b1010).decode_relative_to(Bitfield::new(0b101011)),
-            Some(Bitfield::new(0b100010))
+            Bitfield16::new(0b1010).decode_self_relative_to(Bitfield16::new(0b101011)),
+            Some(Bitfield16::new(0b100010))
         );
     }
 
@@ -682,11 +653,11 @@ mod tests {
     fn decode_encode_relative_to_identity() {
         for i in 0..1000 {
             for j in 0..1000 {
-                let other = Bitfield::new(i);
+                let other = Bitfield16::new(i);
                 let j = j & i; // ensure j is a sub-bitfield of i
-                let bitfield = Bitfield::new(j);
+                let bitfield = Bitfield16::new(j);
                 assert_eq!(
-                    bitfield.encode_relative_to(other).decode_relative_to(other),
+                    bitfield.encode_relative_to(other).decode_self_relative_to(other),
                     Some(bitfield)
                 );
             }
@@ -697,14 +668,14 @@ mod tests {
     fn encode_decode_relative_to_identity() {
         for i in 0..1000 {
             for j in 0..1000 {
-                let other = Bitfield::new(i);
+                let other = Bitfield16::new(i);
                 // ensure only the last n bits of j are populated,
                 // where n is the length of i.
                 let j = j & ((1 << other.len()) - 1);
-                let bitfield = Bitfield::new(j);
+                let bitfield = Bitfield16::new(j);
                 assert_eq!(
                     bitfield
-                        .decode_relative_to(other)
+                        .decode_self_relative_to(other)
                         .map(|d| d.encode_relative_to(other)),
                     Some(bitfield)
                 );

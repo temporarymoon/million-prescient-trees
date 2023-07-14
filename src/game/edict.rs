@@ -1,4 +1,4 @@
-use crate::helpers::bitfield::Bitfield;
+use crate::{helpers::bitfield::Bitfield16, make_bitfield};
 use std::{
     debug_assert,
     fmt::{self, Display},
@@ -33,56 +33,11 @@ impl Edict {
     ];
 }
 
-// }}}
-// {{{ EdictSet
-#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
-pub struct EdictSet(pub Bitfield);
-
-/// Represents an index of a bit in an edict set.
-pub type EdictIndex = usize;
-
-impl EdictSet {
-    #[inline(always)]
-    pub fn empty() -> Self {
-        EdictSet(Bitfield::default())
-    }
-
-    #[inline(always)]
-    pub fn all() -> Self {
-        EdictSet(Bitfield::n_ones(5))
-    }
-
-    #[inline(always)]
-    pub fn remove(&mut self, edict: Edict) {
-        self.0.remove(edict as usize)
-    }
-
-    #[inline(always)]
-    pub fn has(self, edict: Edict) -> bool {
-        self.0.has(edict as usize)
-    }
-
-    #[inline(always)]
-    pub fn len(self) -> usize {
-        let result = self.0.len();
-        debug_assert!(result <= 5); // Sanity checks
-        result
-    }
-
-    #[inline(always)]
-    pub fn indexof(self, target: Edict) -> EdictIndex {
-        self.0.count_from_end(target as usize)
-    }
-
-    #[inline(always)]
-    pub fn index(self, index: EdictIndex) -> Option<Edict> {
-        self.0.lookup_from_end(index).map(|x| Edict::EDICTS[x])
-    }
-}
-
-impl Default for EdictSet {
-    fn default() -> Self {
-        Self::all()
+impl From<usize> for Edict {
+    fn from(value: usize) -> Self {
+        Edict::EDICTS[value]
     }
 }
 // }}}
+
+make_bitfield!(EdictSet, Edict, u8, 5, EdictSetIterator, Bitfield16, false);
