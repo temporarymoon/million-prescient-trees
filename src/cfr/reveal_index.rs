@@ -1,16 +1,12 @@
-use std::debug_assert;
+use std::unreachable;
 
 use crate::game::choice::SabotagePhaseChoice;
+use crate::game::creature::{Creature, CreatureSet};
+use crate::game::edict::{Edict, EdictSet};
 use crate::game::types::Player;
 use crate::helpers::bitfield::Bitfield;
-use crate::helpers::{ranged::MixRanged, Pair};
-use crate::{
-    game::{
-        creature::{Creature, CreatureSet},
-        edict::{Edict, EdictSet},
-    },
-    helpers::choose::choose,
-};
+use crate::helpers::ranged::MixRanged;
+use crate::helpers::Pair;
 
 /// Encodes all the information revealed at the end of a phase.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
@@ -105,7 +101,11 @@ impl RevealIndex {
         Some((sabotage_choices, revealed_creature))
     }
 
-    pub fn sabotage_phase_count(sabotage_statuses: Pair<bool>, graveyard: CreatureSet) -> usize {
+    pub fn sabotage_phase_count(
+        sabotage_statuses: Pair<bool>,
+        seer_player: Player,
+        graveyard: CreatureSet,
+    ) -> usize {
         // How many times the sabotage card was played this turn
         let mut sabotage_play_count = 0;
 
@@ -117,9 +117,22 @@ impl RevealIndex {
             sabotage_play_count += 1;
         };
 
-        let sabotage_count = choose((!graveyard).len(), sabotage_play_count);
+        let mut reveal_possibilities = (!graveyard).len();
 
-        (!graveyard).len() * sabotage_count
+        if (!seer_player).select(sabotage_statuses) {
+            reveal_possibilities -= 1;
+        };
+
+        let sabotage_possibilities = (!graveyard).len();
+
+        let sabotage_count = match sabotage_play_count {
+            0 => 1,
+            1 => sabotage_possibilities,
+            2 => sabotage_possibilities * sabotage_possibilities,
+            _ => unreachable!(),
+        };
+
+        reveal_possibilities * sabotage_count
     }
     // }}}
     // {{{ Seer phase
@@ -192,6 +205,14 @@ mod tests {
                                         revealed_creature,
                                         graveyard,
                                     );
+
+                                    let count = RevealIndex::sabotage_phase_count(
+                                        (first_sabotage_status, second_sabotage_status),
+                                        seer_player,
+                                        graveyard,
+                                    );
+
+                                    assert!(encoded.0 < count, "Encoded value was {}, even though the total count was supposed to be {}", encoded.0, count);
 
                                     let decoded = encoded.decode_sabotage_phase_reveal(
                                         (first_sabotage_status, second_sabotage_status),

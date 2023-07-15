@@ -7,14 +7,102 @@
 #![feature(const_trait_impl)]
 #![allow(dead_code)]
 
-use helpers::bitfield::Bitfield16;
+use bumpalo::Bump;
+use cfr::generate::GenerationContext;
+use game::battlefield::Battlefield;
+use game::known_state::KnownState;
+use std::mem::size_of;
 use std::println;
-use std::time::{Duration, Instant};
+use std::time::Instant;
+
+use crate::game::creature::Creature;
+use crate::helpers::bitfield::Bitfield;
 
 mod ai;
 mod cfr;
 mod game;
 mod helpers;
+
+fn mb_to_b(mb: usize) -> usize {
+    mb * 1024 * 1024
+}
+
+fn b_to_mb(b: usize) -> usize {
+    (b / 1024) / 1024
+}
+
+fn b_to_kb(b: usize) -> usize {
+    b / 1024
+}
+
+fn simple_generation(turns: usize) {
+    let start = Instant::now();
+    let capacity = mb_to_b(4096);
+    let allocator = Bump::with_capacity(0);
+    allocator.set_allocation_limit(Some(capacity));
+    let allocation_duration = start.elapsed();
+
+    println!("Performance:");
+    println!("Allocation: {:?}", allocation_duration);
+
+    let start = Instant::now();
+    let mut state = KnownState::new_starting([Battlefield::Plains; 4]);
+    state.graveyard.add(Creature::Wall);
+    state.graveyard.add(Creature::Seer);
+    // state.graveyard.add(Creature::Mercenary);
+    // state.graveyard.add(Creature::Monarch);
+    state.battlefields.current = 2;
+    let mut generator = GenerationContext::new(turns, state, &allocator);
+    let state_init_duration = start.elapsed();
+
+    println!("State init: {:?}", state_init_duration);
+
+    let start = Instant::now();
+    let (_, stats) = generator.generate();
+    let generation_duration = start.elapsed();
+
+    println!("Generation: {:?}", generation_duration);
+    println!("Allocated: {:?}mb", b_to_mb(allocator.allocated_bytes()));
+
+    println!("\nScope stats:");
+    println!("Explored scopes: {}", stats.explored_scopes);
+    println!("Unexplored scopes: {}", stats.unexplored_scopes);
+    println!("Completed scopes: {}", stats.completed_scopes);
+
+    println!("\nTotal stats:");
+    println!("main decision count: {}", stats.main_total_decisions);
+    println!("main hidden count: {}", stats.main_total_hidden);
+    println!("main branching count: {}", stats.main_total_next);
+    println!(
+        "sabotage decision count: {}",
+        stats.sabotage_total_decisions
+    );
+    println!("sabotage hidden count: {}", stats.sabotage_total_hidden);
+    println!("sabotage branching count: {}", stats.sabotage_total_next);
+    println!("seer decision count: {}", stats.seer_total_decisions);
+    println!("seer hidden count: {}", stats.seer_total_hidden);
+    println!("seer branching count: {}", stats.seer_total_next);
+
+    println!("\nAverage stats:");
+    println!("main decision count: {}", stats.main_average_decisions());
+    println!("main hidden count: {}", stats.main_average_hidden());
+    println!("main branching count: {}", stats.main_average_next());
+    println!(
+        "sabotage decision count: {}",
+        stats.sabotage_average_decisions()
+    );
+    println!("sabotage hidden count: {}", stats.sabotage_average_hidden());
+    println!(
+        "sabotage branching count: {}",
+        stats.sabotage_average_next()
+    );
+    println!("seer decision count: {}", stats.seer_average_decisions());
+    println!("seer hidden count: {}", stats.seer_average_hidden());
+    println!("seer branching count: {}", stats.seer_average_next());
+
+    println!("\nSizes:");
+    println!("KnownState: {}", size_of::<KnownState>());
+}
 
 fn main() {
     // let mut edicts = EdictSet::all();
@@ -57,30 +145,32 @@ fn main() {
     // }
     //
 
-    let start = Instant::now();
-    let mut total = 0;
-    for c in 0..=16 {
-        for i in 0.. {
-            match Bitfield16::decode_ones(i, c) {
-                Some(inner) => println!("{: >2}: {: <5} {:?}", c, i, inner),
-                None => break,
-            };
-            total += 1;
-        }
-    }
-    let duration = start.elapsed();
-    println!("Printed {} numbers in {:?}", total, duration);
+    // let start = Instant::now();
+    // let mut total = 0;
+    // for c in 0..=16 {
+    //     for i in 0.. {
+    //         match Bitfield16::decode_ones(i, c) {
+    //             Some(inner) => println!("{: >2}: {: <5} {:?}", c, i, inner),
+    //             None => break,
+    //         };
+    //         total += 1;
+    //     }
+    // }
+    // let duration = start.elapsed();
+    // println!("Printed {} numbers in {:?}", total, duration);
+    //
+    // let start = Instant::now();
+    // let mut total = 0;
+    // for c in 0..=16 {
+    //     for i in 0.. {
+    //         if Bitfield16::decode_ones(i, c).is_none() {
+    //             break;
+    //         };
+    //         total += 1;
+    //     }
+    // }
+    // let duration = start.elapsed();
+    // println!("Computed {} numbers in {:?}", total, duration);
 
-    let start = Instant::now();
-    let mut total = 0;
-    for c in 0..=16 {
-        for i in 0.. {
-            if Bitfield16::decode_ones(i, c).is_none() {
-                break;
-            };
-            total += 1;
-        }
-    }
-    let duration = start.elapsed();
-    println!("Computed {} numbers in {:?}", total, duration);
+    simple_generation(3);
 }

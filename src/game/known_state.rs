@@ -1,10 +1,10 @@
+use super::battlefield::{Battlefield, Battlefields};
+use super::creature::CreatureSet;
+use super::edict::EdictSet;
+use super::status_effect::StatusEffectSet;
+use super::types::{Player, Score};
 use crate::helpers::bitfield::Bitfield;
 use crate::helpers::Pair;
-use super::types::{Player, Score};
-use super::battlefield::Battlefields;
-use super::status_effect::StatusEffectSet;
-use super::edict::EdictSet;
-use super::creature::CreatureSet;
 
 /// State of a player known by both players.
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
@@ -23,6 +23,15 @@ pub struct KnownState {
 }
 
 impl KnownState {
+    pub fn new_starting(battlefields: [Battlefield; 4]) -> Self {
+        Self {
+            player_states: Default::default(),
+            graveyard: Default::default(),
+            score: Default::default(),
+            battlefields: Battlefields::new(battlefields),
+        }
+    }
+
     /// Returns the player under the seer status effect.
     pub fn seer_player(&self) -> Option<Player> {
         if self
