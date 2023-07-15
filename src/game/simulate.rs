@@ -1,4 +1,4 @@
-use crate::game::edict::EdictSet;
+use crate::{game::edict::EdictSet, helpers::{swap::Pair, bitfield::Bitfield}};
 
 use super::{
     battlefield::Battlefield,
@@ -14,16 +14,16 @@ use std::debug_assert_eq;
 // Context required resolving a battle
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub struct BattleContext {
-    pub main_choices: (FinalMainPhaseChoice, FinalMainPhaseChoice),
-    pub sabotage_choices: (SabotagePhaseChoice, SabotagePhaseChoice),
+    pub main_choices: Pair<FinalMainPhaseChoice>,
+    pub sabotage_choices: Pair<SabotagePhaseChoice>,
     pub state: KnownState,
 }
 
 impl BattleContext {
     #[inline(always)]
     pub fn new(
-        main_choices: (FinalMainPhaseChoice, FinalMainPhaseChoice),
-        sabotage_choices: (SabotagePhaseChoice, SabotagePhaseChoice),
+        main_choices: Pair<FinalMainPhaseChoice>,
+        sabotage_choices: Pair<SabotagePhaseChoice>,
         state: KnownState,
     ) -> Self {
         Self {

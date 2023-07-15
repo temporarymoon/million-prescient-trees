@@ -1,5 +1,5 @@
 use super::creature::{Creature, CreatureSet};
-use crate::helpers::bitfield::Bitfield16;
+use crate::helpers::bitfield::{Bitfield16, Bitfield};
 
 // {{{ UserCreatureChoice
 /// User facing version of `CreatureChoice`.

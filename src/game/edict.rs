@@ -1,4 +1,7 @@
-use crate::{helpers::bitfield::Bitfield16, make_bitfield};
+use crate::{
+    helpers::bitfield::{Bitfield, Bitfield16},
+    make_bitfield,
+};
 use std::{
     debug_assert,
     fmt::{self, Display},

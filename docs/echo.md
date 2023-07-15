@@ -208,3 +208,8 @@ A quick sketch of the implementation:
 
 6. Compute number of victory points earned by the victor
 7. Prepare status effects for the following turn
+
+## Interesting observations
+
+- If both players sabotage the same creature in the same turn, it's very likely said creature is the overseer.
+- The number of decision a player has a turn is known by both players.

@@ -1,5 +1,121 @@
 use const_for::const_for;
 
+// {{{ Trait definition
+pub trait Bitfield: Sized {
+    type Element: From<usize>;
+    type Representation: From<Self>;
+
+    /// The maximum valid value this bitfield can take.
+    const MAX: Self::Representation;
+
+    /// The number of bits in the bitfield
+    const BITS: usize;
+
+    /// Construct a new bitfield.
+    fn new(x: Self::Representation) -> Self;
+
+    /// Construct a bitfield containing a single bit.
+    fn singleton(x: Self::Element) -> Self;
+
+    /// Returns a bitfield containing only zeros.
+    fn empty() -> Self;
+
+    /// Returns a bitfield containing only ones.
+    #[inline(always)]
+    fn all() -> Self {
+        Self::new(Self::MAX)
+    }
+
+    /// Checks if the bitfield contains an one at some index.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// has(0b0100, 1) // false
+    /// has(0b0100, 2) // true
+    /// ```
+    fn has(self, index: Self::Element) -> bool;
+
+    /// Similar to `has`, but accepts integers instead of `$element`.
+    fn has_raw(self, index: usize) -> bool;
+
+    /// Adds a bit to a bitfield.
+    /// Errors out if the bit is already there.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// add(0b0100, 1) // 0b0110
+    /// ```
+    fn add(&mut self, index: Self::Element);
+
+    /// Similar to `add`, but accepts integers instead of `$element`.
+    fn add_raw(&mut self, index: usize);
+
+    /// Removes a bit from a bitfield.
+    /// Errors out if the bit is already there.
+    /// # Examples
+    ///
+    /// ```
+    /// add(0b0110, 1) // 0b0100
+    /// ```
+    fn remove(&mut self, index: Self::Element);
+
+    /// Sets all bits to one.
+    #[inline(always)]
+    fn fill(&mut self) {
+        *self = Self::all();
+    }
+
+    /// Sets all bits to zero.
+    #[inline(always)]
+    fn clear(&mut self) {
+        *self = Self::empty();
+    }
+
+    /// Returns the number of ones inside self.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// len(0b101011) // 4
+    /// ```
+    fn len(self) -> usize;
+
+    /// Return the number of ones between a given index and the end.
+    ///
+    /// # Arguments
+    ///
+    /// * `target` - The index to count ones after.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// indexof(0b0100, 2) // 0
+    /// indexof(0b0101, 2) // 1
+    /// indexof(0b0111, 2) // 2
+    /// ```
+    fn indexof(self, target: Self::Element) -> usize;
+
+    /// Similar to `indexof`, but accepts integers instead of `$element`.
+    fn indexof_raw(self, target: usize) -> usize;
+
+    /// Returns the position (starting from the end) of the nth bit.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// index(0b010101, 2) // Some(4)
+    /// index(0b010101, 3) // Some(4)
+    /// ```
+    fn index(self, index: usize) -> Option<Self::Element> {
+        (0..Self::BITS)
+            .filter(|x| self.has_raw(*x))
+            .nth(index)
+            .map(|i| Self::Element::from(i))
+    }
+}
+// }}}
 // {{{ Main macro definition
 #[macro_export]
 macro_rules! make_bitfield {
@@ -13,69 +129,54 @@ macro_rules! make_bitfield {
         $default_is_empty: literal
     ) => {
         #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
-        pub struct $name($repr);
+        pub struct $name(pub $repr);
+
+        impl Into<$repr> for $name {
+            fn into(self) -> $repr {
+                self.0
+            }
+        }
 
         // {{{ Main impl block
-        impl $name {
-            /// The maximum valid value this bitfield can take.
-            pub const MAX: $repr = if $bits == <$repr>::BITS {
+        impl crate::helpers::bitfield::Bitfield for $name {
+            type Element = $element;
+            type Representation = $repr;
+
+            const MAX: $repr = if $bits == <$repr>::BITS {
                 <$repr>::MAX
             } else {
                 (1 << ($bits)) - 1
             };
 
+            const BITS: usize = $bits;
+
             #[inline(always)]
-            pub const fn new(x: $repr) -> Self {
+            fn new(x: $repr) -> Self {
                 debug_assert!(x <= Self::MAX);
                 Self(x)
             }
 
-            /// Construct a bitfield containing a single bit.
             #[inline(always)]
-            pub fn singleton(x: $element) -> Self {
+            fn singleton(x: $element) -> Self {
                 Self::new(1 << (x as $repr))
             }
 
-            /// Returns a bitfield containing only zeros.
             #[inline(always)]
-            pub fn empty() -> Self {
+            fn empty() -> Self {
                 Self::new(0)
             }
 
-            /// Returns a bitfield containing only ones.
             #[inline(always)]
-            pub fn all() -> Self {
-                Self::new(Self::MAX)
-            }
-
-            /// Checks if the bitfield contains an one at some index.
-            ///
-            /// # Examples
-            ///
-            /// ```
-            /// has(0b0100, 1) // false
-            /// has(0b0100, 2) // true
-            /// ```
-            #[inline(always)]
-            pub const fn has(self, index: $element) -> bool {
+            fn has(self, index: $element) -> bool {
                 self.has_raw(index as usize)
             }
 
-            /// Similar to `has`, but accepts integers instead of `$element`.
             #[inline(always)]
-            pub const fn has_raw(self, index: usize) -> bool {
+            fn has_raw(self, index: usize) -> bool {
                 ((self.0 >> (index as $repr)) & 1) != 0
             }
 
-            /// Adds a bit to a bitfield.
-            /// Errors out if the bit is already there.
-            ///
-            /// # Examples
-            ///
-            /// ```
-            /// add(0b0100, 1) // 0b0110
-            /// ```
-            pub fn add(&mut self, index: $element) {
+            fn add(&mut self, index: $element) {
                 if self.has(index) {
                     panic!(
                         "Trying to add index {} that is already present in {:b}",
@@ -86,8 +187,7 @@ macro_rules! make_bitfield {
                 self.0 |= 1 << (index as $repr);
             }
 
-            /// Similar to `add`, but accepts integers instead of `$element`.
-            pub fn add_raw(&mut self, index: usize) {
+            fn add_raw(&mut self, index: usize) {
                 if self.has_raw(index) {
                     panic!(
                         "Trying to add index {} that is already present in {:b}",
@@ -98,14 +198,7 @@ macro_rules! make_bitfield {
                 self.0 |= 1 << (index as $repr);
             }
 
-            /// Removes a bit from a bitfield.
-            /// Errors out if the bit is already there.
-            /// # Examples
-            ///
-            /// ```
-            /// add(0b0110, 1) // 0b0100
-            /// ```
-            pub fn remove(&mut self, index: $element) {
+            fn remove(&mut self, index: $element) {
                 if !self.has(index) {
                     panic!(
                         "Trying to remove index {} that is not present {:b}",
@@ -116,66 +209,21 @@ macro_rules! make_bitfield {
                 self.0 ^= 1 << (index as $repr)
             }
 
-            /// Sets all bits to one.
-            #[inline(always)]
-            pub fn fill(&mut self) {
-                self.0 = Self::MAX;
-            }
-
-            /// Sets all bits to zero.
-            #[inline(always)]
-            pub fn clear(&mut self) {
-                self.0 = 0;
-            }
-
-            /// Returns the number of ones inside self.
-            ///
-            /// # Examples
-            ///
-            /// ```
-            /// len(0b101011) // 4
-            /// ```
-            pub const fn len(self) -> usize {
+            fn len(self) -> usize {
                 self.0.count_ones() as usize
             }
 
-            /// Return the number of ones between a given index and the end.
-            ///
-            /// # Arguments
-            ///
-            /// * `target` - The index to count ones after.
-            ///
-            /// # Examples
-            ///
-            /// ```
-            /// indexof(0b0100, 2) // 0
-            /// indexof(0b0101, 2) // 1
-            /// indexof(0b0111, 2) // 2
-            /// ```
-            pub fn indexof(self, target: $element) -> usize {
+            fn indexof(self, target: $element) -> usize {
                 self.indexof_raw(target as usize)
             }
 
-            /// Similar to `indexof`, but accepts integers instead of `$element`.
-            pub fn indexof_raw(self, target: usize) -> usize {
+            fn indexof_raw(self, target: usize) -> usize {
                 (self.0 & ((1 << (target as $repr)) - 1)).count_ones() as usize
             }
-
-            /// Returns the position (starting from the end) of the nth bit.
-            ///
-            /// # Examples
-            ///
-            /// ```
-            /// index(0b010101, 2) // Some(4)
-            /// index(0b010101, 3) // Some(4)
-            /// ```
-            pub fn index(self, index: usize) -> Option<$element> {
-                (0..$bits)
-                    .filter(|x| self.has_raw(*x))
-                    .nth(index)
-                    .map(|i| <$element>::from(i))
-            }
-
+        }
+        // }}}
+        // {{{ Relative encoding
+        impl $name {
             /// Encode a bitfield as a subset of another bitfield.
             /// Bits are shifted to the left such that all zero bits in the super-bitfield
             /// are not present in the sub-bitfield.
@@ -183,7 +231,7 @@ macro_rules! make_bitfield {
             /// Properties:
             /// - the empty bitfield acts as a left zero elements
             /// - the full bitfield acts as a right identity
-            pub fn encode_relative_to(self, other: Self) -> $index_bitfield {
+            fn encode_relative_to(self, other: Self) -> $index_bitfield {
                 let mut result = <$index_bitfield>::empty();
 
                 for i in 0..$bits {
@@ -203,7 +251,7 @@ macro_rules! make_bitfield {
             }
 
             /// Inverse of `encode_relative_to`.
-            pub fn decode_relative_to(encoded: $index_bitfield, other: Self) -> Option<Self> {
+            fn decode_relative_to(encoded: $index_bitfield, other: Self) -> Option<Self> {
                 let mut result = Self::empty();
 
                 for i in 0..$bits {

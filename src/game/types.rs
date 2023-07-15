@@ -1,6 +1,9 @@
 use std::ops::Add;
 use std::ops::Not;
 
+use crate::helpers::swap::Pair;
+use crate::helpers::swap::conditional_swap;
+
 // {{{ Players
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Player {
@@ -27,7 +30,7 @@ impl Player {
     /// where the first and second elements represents the data
     /// for the current and other players respectively.
     #[inline(always)]
-    pub fn select<T>(self, pair: (T, T)) -> T {
+    pub fn select<T>(self, pair: Pair<T>) -> T {
         match self {
             Player::Me => pair.0,
             Player::You => pair.1,
@@ -35,11 +38,21 @@ impl Player {
     }
 
     #[inline(always)]
-    pub fn select_mut<T>(self, pair: &mut (T, T)) -> &mut T {
+    pub fn select_mut<T>(self, pair: &mut Pair<T>) -> &mut T {
         match self {
             Player::Me => &mut pair.0,
             Player::You => &mut pair.1,
         }
+    }
+
+    /// Swaps a pair such that:
+    /// ```
+    /// pair.0 ==    player.select(player.order_as(pair))
+    /// pair.1 == (!player).select(player.order_as(pair))
+    /// ```
+    #[inline(always)]
+    pub fn order_as<T>(self, pair: Pair<T>) -> Pair<T> {
+        conditional_swap(pair, self == Player::You)
     }
 }
 // }}}

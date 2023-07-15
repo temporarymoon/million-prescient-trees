@@ -1,9 +1,15 @@
+use super::bitfield::Bitfield;
+
 pub trait MixRanged: Sized {
     /// Embed an integer inside self given the maximum value of the integer.
     fn mix_ranged(self, value: usize, max: usize) -> usize;
 
     /// The inverse of mix_ranged.
     fn unmix_ranged(self, max: usize) -> (usize, usize);
+
+    fn mix_indexof<T : Bitfield>(self, index: T::Element, possibilities: T) -> usize {
+        self.mix_ranged(possibilities.indexof(index), possibilities.len())
+    }
 }
 
 impl MixRanged for usize {
@@ -11,10 +17,12 @@ impl MixRanged for usize {
         max * self + value
     }
 
+    // TODO: return Option
     fn unmix_ranged(self, max: usize) -> (Self, usize) {
         (self / max, self % max)
     }
 }
+
 
 #[cfg(test)]
 mod tests {

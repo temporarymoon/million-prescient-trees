@@ -10,8 +10,6 @@
 use helpers::bitfield::Bitfield16;
 use std::println;
 
-use crate::game::creature::CreatureSet;
-
 mod ai;
 mod cfr;
 mod game;

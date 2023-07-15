@@ -1,4 +1,4 @@
-use crate::{helpers::bitfield::Bitfield16, make_bitfield};
+use crate::{helpers::bitfield::{Bitfield16, Bitfield}, make_bitfield};
 use std::fmt::{self, Display};
 
 /// Different kind of lingering effects affecting a given player

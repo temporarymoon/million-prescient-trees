@@ -4,7 +4,7 @@ use crate::{
         creature_choice::{CreatureChoice, UserCreatureChoice},
         edict::{Edict, EdictSet},
     },
-    helpers::{bitfield::Bitfield16, choose::choose, ranged::MixRanged},
+    helpers::{bitfield::{Bitfield16, Bitfield}, choose::choose, ranged::MixRanged},
 };
 
 /// Used to index decision vectors.
@@ -97,6 +97,16 @@ impl DecisionIndex {
             .next()
     }
 
+    /// One more than the maximum value of `encode_sabotage_phase_index`, but using the pre-main
+    /// phase hand size.
+    #[inline(always)]
+    pub fn sabotage_phase_index_count_old_hand(
+        old_hand_size: usize,
+        graveyard: CreatureSet,
+    ) -> usize {
+        Creature::CREATURES.len() - old_hand_size - graveyard.len()
+    }
+
     /// One more than the maximum value of `encode_sabotage_phase_index`.
     #[inline(always)]
     pub fn sabotage_phase_index_count(
@@ -104,10 +114,10 @@ impl DecisionIndex {
         graveyard: CreatureSet,
         seer_active: bool,
     ) -> usize {
-        Creature::CREATURES.len()
-            - hand_size
-            - graveyard.len()
-            - UserCreatureChoice::len_from_status(seer_active)
+        Self::sabotage_phase_index_count_old_hand(
+            hand_size + UserCreatureChoice::len_from_status(seer_active),
+            graveyard,
+        )
     }
     // }}}
     // {{{ Seer phase

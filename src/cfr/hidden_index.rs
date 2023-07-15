@@ -2,7 +2,7 @@ use std::debug_assert_eq;
 
 use crate::game::creature::CreatureSet;
 use crate::game::creature_choice::{CreatureChoice, UserCreatureChoice};
-use crate::helpers::bitfield::Bitfield16;
+use crate::helpers::bitfield::{Bitfield16, Bitfield};
 use crate::helpers::choose::choose;
 use crate::helpers::ranged::MixRanged;
 
@@ -137,6 +137,10 @@ impl HiddenIndex {
         graveyard: CreatureSet,
         seer_active: bool,
     ) -> usize {
+        // Intuitively speaking:
+        // - We first pick the hand, giving us HP choose HS possibilities
+        // - We then pick the choice from the remaining HP - HS cards,
+        //   giving us (HP - HS) choose CL possibilities
         let hand_possibilites = !(graveyard);
         let hand_count = hand_possibilites.hands_of_size(hand_size);
         let choice_len = UserCreatureChoice::len_from_status(seer_active);
@@ -144,8 +148,23 @@ impl HiddenIndex {
 
         choice_count * hand_count
     }
+
+    /// Similar to `sabotage_seer_index_count` but accepts the size of the hand pre-main phase.
+    #[inline(always)]
+    pub fn sabotage_seer_index_count_old_hand(
+        old_hand_size: usize,
+        graveyard: CreatureSet,
+        seer_active: bool,
+    ) -> usize {
+        Self::sabotage_seer_index_count(
+            old_hand_size - UserCreatureChoice::len_from_status(seer_active),
+            graveyard,
+            seer_active,
+        )
+    }
     // }}}
 }
+
 
 // {{{ Tests
 #[cfg(test)]

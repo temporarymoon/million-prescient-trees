@@ -1,5 +1,8 @@
 use crate::{
-    helpers::{bitfield::Bitfield16, choose::choose},
+    helpers::{
+        bitfield::{Bitfield, Bitfield16},
+        choose::choose,
+    },
     make_bitfield,
 };
 use std::{
