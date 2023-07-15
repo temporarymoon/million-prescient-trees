@@ -1,9 +1,7 @@
-use const_for::const_for;
-
 // {{{ Trait definition
-pub trait Bitfield: Sized {
+pub trait Bitfield: Sized + Copy + Into<Self::Representation> {
     type Element: From<usize>;
-    type Representation: From<Self>;
+    type Representation;
 
     /// The maximum valid value this bitfield can take.
     const MAX: Self::Representation;
@@ -231,7 +229,7 @@ macro_rules! make_bitfield {
             /// Properties:
             /// - the empty bitfield acts as a left zero elements
             /// - the full bitfield acts as a right identity
-            fn encode_relative_to(self, other: Self) -> $index_bitfield {
+            pub fn encode_relative_to(self, other: Self) -> $index_bitfield {
                 let mut result = <$index_bitfield>::empty();
 
                 for i in 0..$bits {
@@ -251,7 +249,7 @@ macro_rules! make_bitfield {
             }
 
             /// Inverse of `encode_relative_to`.
-            fn decode_relative_to(encoded: $index_bitfield, other: Self) -> Option<Self> {
+            pub fn decode_relative_to(encoded: $index_bitfield, other: Self) -> Option<Self> {
                 let mut result = Self::empty();
 
                 for i in 0..$bits {
@@ -407,6 +405,8 @@ impl Bitfield16 {
 // }}}
 // {{{ Ones encoding
 pub mod one_encoding {
+    use once_cell::sync::Lazy;
+
     // {{{ Implementation
     use crate::helpers::choose::choose;
 
@@ -423,15 +423,15 @@ pub mod one_encoding {
     ///
     /// An index is simply equal to the previous one, plus the number
     /// of spots required by the previous table (in this case, `16 choose i - 1`).
-    const MAGIC_INDICES: [usize; BIT_CASES] = {
+    static MAGIC_INDICES: Lazy<[usize; BIT_CASES]> = Lazy::new(|| {
         let mut results = [0; BIT_CASES];
 
-        const_for!(i in 1..BIT_CASES => {
+        for i in 1..BIT_CASES {
             results[i] = results[i - 1] + choose(16, i - 1);
-        });
+        };
 
         results
-    };
+    });
 
     /// The lookup tables required for encoding!
     /// - the first table maps raw values to encoded values.
@@ -440,25 +440,25 @@ pub mod one_encoding {
     ///   to respective raw values with n-ones inside.
     /// - the third table contains the number of entries in each table
     ///   contained in the second array (used for testing / asserts).
-    const LOOKUP_TABLES: (
+    static LOOKUP_TABLES: Lazy<(
         [u16; DECODED_COUNT],
         [u16; DECODED_COUNT],
         [usize; BIT_CASES],
-    ) = {
+    )> = Lazy::new(|| {
         let mut encode = [0 as u16; DECODED_COUNT];
         let mut decode = [0 as u16; DECODED_COUNT];
         let mut lengths = [0 as usize; BIT_CASES];
 
-        const_for!(decoded in 0..DECODED_COUNT => {
+        for decoded in 0..DECODED_COUNT {
             let count = Bitfield16::new(decoded as u16).len() as usize;
             let encoded = lengths[count];
             decode[MAGIC_INDICES[count] + encoded] = decoded as u16;
             encode[decoded] = encoded as u16;
             lengths[count] += 1;
-        });
+        };
 
         (encode, decode, lengths)
-    };
+    });
 
     impl Bitfield16 {
         /// Efficiently assume the number of ones in the bit

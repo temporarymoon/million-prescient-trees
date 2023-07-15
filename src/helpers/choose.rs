@@ -1,21 +1,19 @@
-use const_for::const_for;
-
 /// Const `n choose k` function.
 /// - tested for values smaller than 17.
 /// - fails when n=0 or n>=k.
-pub const fn choose(n: usize, k: usize) -> usize {
+pub fn choose(n: usize, k: usize) -> usize {
     assert!(n >= 1); // Our implementation doesn't handle 0 nicely
     assert!(n >= k);
 
     let mut result: u64 = 1;
 
-    const_for!(i in (n - k + 1)..(n + 1) => {
-       result *= i as u64;
-    });
+    for i in (n - k + 1)..(n + 1) {
+        result *= i as u64;
+    }
 
-    const_for!(i in 2..(k + 1) => {
+    for i in 2..(k + 1) {
         result /= i as u64;
-    });
+    }
 
     return result as usize;
 }

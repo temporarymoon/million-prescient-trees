@@ -14,10 +14,9 @@ use crate::{
         status_effect::StatusEffect,
         types::{Player, TurnResult},
     },
-    helpers::{swap::Pair, bitfield::Bitfield},
+    helpers::{bitfield::Bitfield, swap::Pair},
 };
 use bumpalo::Bump;
-use std::todo;
 
 pub struct GenerationContext<'a> {
     turns: usize,
@@ -87,8 +86,8 @@ impl<'a> GenerationContext<'a> {
     }
     // }}}
     // {{{ Sabotage phase
-    fn sabotage_vector_size(choice: Edict, guess_count: usize) -> usize {
-        if choice == Edict::Sabotage {
+    fn sabotage_vector_size(did_sabotage: bool, guess_count: usize) -> usize {
+        if did_sabotage {
             guess_count
         } else {
             1
@@ -98,13 +97,17 @@ impl<'a> GenerationContext<'a> {
     fn generate_sabotage(&self, edict_choices: Pair<Edict>) -> Scope<'a> {
         let hand_size = self.hand_size();
         let seer_statuses = self.seer_statuses();
+        let sabotage_statuses = (
+            edict_choices.0 == Edict::Sabotage,
+            edict_choices.1 == Edict::Sabotage,
+        );
 
         let guess_count =
             DecisionIndex::sabotage_phase_index_count_old_hand(hand_size, self.state.graveyard);
 
         let vector_sizes = (
-            Self::sabotage_vector_size(edict_choices.0, guess_count),
-            Self::sabotage_vector_size(edict_choices.1, guess_count),
+            Self::sabotage_vector_size(sabotage_statuses.0, guess_count),
+            Self::sabotage_vector_size(sabotage_statuses.1, guess_count),
         );
 
         let hidden_counts = (
@@ -126,13 +129,17 @@ impl<'a> GenerationContext<'a> {
         );
 
         let next = self.allocator.alloc_slice_fill_with(
-            RevealIndex::sabotage_phase_count(vector_sizes, self.state.graveyard),
+            RevealIndex::sabotage_phase_count(sabotage_statuses, self.state.graveyard),
             |index| {
-                let (decision_indices, revealed_creature) = RevealIndex(index)
-                    .decode_sabotage_phase_reveal(vector_sizes, self.state.graveyard)
+                let (sabotage_choices, revealed_creature) = RevealIndex(index)
+                    .decode_sabotage_phase_reveal(
+                        sabotage_statuses,
+                        self.seer_player(),
+                        self.state.graveyard,
+                    )
                     .unwrap();
 
-                self.generate_seer(edict_choices, revealed_creature, todo!())
+                self.generate_seer(edict_choices, revealed_creature, sabotage_choices)
             },
         );
 

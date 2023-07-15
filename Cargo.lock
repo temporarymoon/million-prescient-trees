@@ -41,12 +41,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "const_for"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20e43dd2195037d926511d451064f089f9ed260f7a4f40f41e37b10562d87273"
-
-[[package]]
 name = "crossbeam-channel"
 version = "0.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -105,14 +99,11 @@ name = "echo"
 version = "0.1.0"
 dependencies = [
  "bumpalo",
- "const_for",
  "dialoguer",
  "indicatif",
  "once_cell",
  "rand",
  "rayon",
- "rustc-hash",
- "smallvec",
 ]
 
 [[package]]
@@ -303,22 +294,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustc-hash"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
-
-[[package]]
 name = "scopeguard"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d29ab0c6d3fc0ee92fe66e2d99f700eab17a8d57d1c1d3b748380fb20baa78cd"
-
-[[package]]
-name = "smallvec"
-version = "1.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a507befe795404456341dfab10cef66ead4c041f62b8b11bbb92bffe5d0953e0"
 
 [[package]]
 name = "tempfile"

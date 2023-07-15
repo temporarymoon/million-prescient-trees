@@ -9,6 +9,7 @@
 
 use helpers::bitfield::Bitfield16;
 use std::println;
+use std::time::{Duration, Instant};
 
 mod ai;
 mod cfr;
@@ -56,12 +57,30 @@ fn main() {
     // }
     //
 
+    let start = Instant::now();
+    let mut total = 0;
     for c in 0..=16 {
         for i in 0.. {
             match Bitfield16::decode_ones(i, c) {
                 Some(inner) => println!("{: >2}: {: <5} {:?}", c, i, inner),
                 None => break,
-            }
+            };
+            total += 1;
         }
     }
+    let duration = start.elapsed();
+    println!("Printed {} numbers in {:?}", total, duration);
+
+    let start = Instant::now();
+    let mut total = 0;
+    for c in 0..=16 {
+        for i in 0.. {
+            if Bitfield16::decode_ones(i, c).is_none() {
+                break;
+            };
+            total += 1;
+        }
+    }
+    let duration = start.elapsed();
+    println!("Computed {} numbers in {:?}", total, duration);
 }

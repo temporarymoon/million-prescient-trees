@@ -7,7 +7,7 @@ pub trait MixRanged: Sized {
     /// The inverse of mix_ranged.
     fn unmix_ranged(self, max: usize) -> (usize, usize);
 
-    fn mix_indexof<T : Bitfield>(self, index: T::Element, possibilities: T) -> usize {
+    fn mix_indexof<T: Bitfield>(self, index: T::Element, possibilities: T) -> usize {
         self.mix_ranged(possibilities.indexof(index), possibilities.len())
     }
 }
@@ -22,7 +22,6 @@ impl MixRanged for usize {
         (self / max, self % max)
     }
 }
-
 
 #[cfg(test)]
 mod tests {

@@ -10,8 +10,6 @@ use crate::{
     helpers::choose::choose,
 };
 
-use super::decision_index::DecisionIndex;
-
 /// Encodes all the information revealed at the end of a phase.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
 pub struct RevealIndex(pub usize);
@@ -69,31 +67,15 @@ impl RevealIndex {
 
     pub fn decode_sabotage_phase_reveal(
         self,
-        decision_counts: (usize, usize),
+        sabotage_statuses: Pair<bool>,
+        seer_player: Player,
         graveyard: CreatureSet,
-    ) -> Option<(Pair<DecisionIndex>, Creature)> {
-        let (encoded, decision_index_1) = self.0.unmix_ranged(decision_counts.1);
-        let (creature_index, decision_index_0) = encoded.unmix_ranged(decision_counts.0);
-        let creature = (!graveyard).index(creature_index)?;
+    ) -> Option<(Pair<SabotagePhaseChoice>, Creature)> {
+        // let creature = (!graveyard).index(creature_index)?;
 
-        for player in Player::PLAYERS.iter().rev() {
-            // result = Self::update_sabotage_index(
-            //     sabotage_choices,
-            //     Player::Me,
-            //     seer_player,
-            //     revealed_creature,
-            //     possibilities,
-            //     result,
-            // );
-        }
+        for player in Player::PLAYERS.iter().rev() {}
 
-        Some((
-            (
-                DecisionIndex(decision_index_0),
-                DecisionIndex(decision_index_1),
-            ),
-            creature,
-        ))
+        todo!()
     }
 
     pub fn sabotage_phase_count(sabotage_statuses: Pair<bool>, graveyard: CreatureSet) -> usize {

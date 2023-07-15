@@ -502,14 +502,14 @@ mod tests {
     use std::assert_eq;
 
     // {{{ Common setup
-    const BASIC_STATE: Lazy<KnownState> = Lazy::new(|| KnownState {
+    static BASIC_STATE: Lazy<KnownState> = Lazy::new(|| KnownState {
         battlefields: Battlefields::new([Battlefield::Plains; 4]),
         graveyard: CreatureSet::default(),
         score: Score::default(),
         player_states: Default::default(),
     });
 
-    const BASIC_BATTLE_CONTEXT: Lazy<BattleContext> = Lazy::new(|| {
+    static BASIC_BATTLE_CONTEXT: Lazy<BattleContext> = Lazy::new(|| {
         let p1_choice = FinalMainPhaseChoice::new(Creature::Mercenary, Edict::Gambit);
         let p2_choice = FinalMainPhaseChoice::new(Creature::Seer, Edict::Gambit);
 
