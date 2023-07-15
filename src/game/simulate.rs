@@ -1,14 +1,13 @@
-use crate::{game::edict::EdictSet, helpers::{swap::Pair, bitfield::Bitfield}};
-
-use super::{
-    battlefield::Battlefield,
-    choice::{FinalMainPhaseChoice, SabotagePhaseChoice},
-    creature::Creature,
-    edict::Edict,
-    known_state::KnownState,
-    status_effect::{StatusEffect, StatusEffectSet},
-    types::{Player, TurnResult, BattleResult},
-};
+use super::battlefield::Battlefield;
+use super::choice::{FinalMainPhaseChoice, SabotagePhaseChoice};
+use super::creature::Creature;
+use super::edict::Edict;
+use super::known_state::KnownState;
+use super::status_effect::{StatusEffect, StatusEffectSet};
+use super::types::{BattleResult, Player, TurnResult};
+use crate::game::edict::EdictSet;
+use crate::helpers::bitfield::Bitfield;
+use crate::helpers::Pair;
 use std::debug_assert_eq;
 
 // Context required resolving a battle

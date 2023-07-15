@@ -1,9 +1,9 @@
+use super::Pair;
+
 /// Trait which allows swapping the elements of some structure.
 pub trait Swap {
     fn swap(self) -> Self;
 }
-
-pub type Pair<T> = (T, T);
 
 impl<T> Swap for Pair<T> {
     #[inline(always)]

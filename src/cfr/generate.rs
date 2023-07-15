@@ -14,7 +14,7 @@ use crate::{
         status_effect::StatusEffect,
         types::{Player, TurnResult},
     },
-    helpers::{bitfield::Bitfield, swap::Pair},
+    helpers::{bitfield::Bitfield, Pair},
 };
 use bumpalo::Bump;
 

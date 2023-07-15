@@ -1,12 +1,10 @@
-use crate::helpers::{swap::Pair, bitfield::Bitfield};
-
-use super::{
-    battlefield::Battlefields,
-    creature::CreatureSet,
-    edict::EdictSet,
-    status_effect::StatusEffectSet,
-    types::{Player, Score},
-};
+use crate::helpers::bitfield::Bitfield;
+use crate::helpers::Pair;
+use super::types::{Player, Score};
+use super::battlefield::Battlefields;
+use super::status_effect::StatusEffectSet;
+use super::edict::EdictSet;
+use super::creature::CreatureSet;
 
 /// State of a player known by both players.
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]

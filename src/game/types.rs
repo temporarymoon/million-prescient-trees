@@ -1,8 +1,7 @@
+use crate::helpers::swap::conditional_swap;
+use crate::helpers::Pair;
 use std::ops::Add;
 use std::ops::Not;
-
-use crate::helpers::swap::Pair;
-use crate::helpers::swap::conditional_swap;
 
 // {{{ Players
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -37,6 +36,14 @@ impl Player {
         }
     }
 
+    /// Mutates the value selected by `select_mut`.
+    #[inline(always)]
+    pub fn set_selection<T>(self, pair: &mut Pair<T>, value: T) {
+        let selection = self.select_mut(pair);
+        *selection = value;
+    }
+
+    /// Similar to `select` but for mut references.
     #[inline(always)]
     pub fn select_mut<T>(self, pair: &mut Pair<T>) -> &mut T {
         match self {

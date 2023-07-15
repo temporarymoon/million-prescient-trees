@@ -2,7 +2,7 @@
 
 use crate::game::known_state::KnownState;
 use crate::game::types::{Player, Score};
-use crate::helpers::{normalize_vec, roulette, swap::Pair};
+use crate::helpers::{normalize_vec, roulette, Pair};
 use bumpalo::Bump;
 use rand::Rng;
 

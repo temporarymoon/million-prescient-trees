@@ -5,6 +5,8 @@ pub mod swap;
 pub mod bitfield;
 pub mod ranged;
 
+pub type Pair<T> = (T, T);
+
 /// Normalize a vector. If all the values are zero,
 /// all the entries will be set to 1/size.
 pub fn normalize_vec(vec: &mut [f32]) {

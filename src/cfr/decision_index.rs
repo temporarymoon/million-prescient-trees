@@ -4,7 +4,11 @@ use crate::{
         creature_choice::{CreatureChoice, UserCreatureChoice},
         edict::{Edict, EdictSet},
     },
-    helpers::{bitfield::{Bitfield16, Bitfield}, choose::choose, ranged::MixRanged},
+    helpers::{
+        bitfield::{Bitfield, Bitfield16},
+        choose::choose,
+        ranged::MixRanged,
+    },
 };
 
 /// Used to index decision vectors.
@@ -21,9 +25,8 @@ impl DecisionIndex {
         hand: CreatureSet,
     ) -> DecisionIndex {
         let creature_choice = CreatureChoice::encode_user_choice(creatures, hand);
-        let edict_index = edicts.indexof(edict);
 
-        DecisionIndex((creature_choice.0).mix_ranged(edict_index, edicts.len()))
+        DecisionIndex((creature_choice.0).mix_indexof(edict, edicts))
     }
 
     /// Decodes a main phase user choice into a decision index.
@@ -33,8 +36,7 @@ impl DecisionIndex {
         hand: CreatureSet,
         seer_active: bool,
     ) -> Option<(UserCreatureChoice, Edict)> {
-        let (creatures, edict_index) = self.0.unmix_ranged(edicts.len());
-        let edict = edicts.index(edict_index)?;
+        let (creatures, edict) = self.0.unmix_indexof(edicts)?;
         let user_creature_choice =
             CreatureChoice(creatures).decode_user_choice(hand, seer_active)?;
 

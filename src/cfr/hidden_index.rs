@@ -118,7 +118,7 @@ impl HiddenIndex {
         let hand_possibilites = !(graveyard);
 
         let max = hand_possibilites.hands_of_size(UserCreatureChoice::len_from_status(seer_active));
-        let (encoded_hand, encoded_choice) = self.0.unmix_ranged(max);
+        let (encoded_hand, encoded_choice) = self.0.unmix_ranged(max)?;
         let hand = Self::decode_hand_contents(encoded_hand, hand_possibilites, hand_size)?;
 
         let choice_possibilites = !(graveyard | hand);
