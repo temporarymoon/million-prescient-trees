@@ -15,6 +15,7 @@ use std::mem::size_of;
 use std::println;
 use std::time::Instant;
 
+use crate::cfr::decision::Scope;
 use crate::game::creature::Creature;
 use crate::helpers::bitfield::Bitfield;
 
@@ -27,18 +28,22 @@ fn mb_to_b(mb: usize) -> usize {
     mb * 1024 * 1024
 }
 
-fn b_to_mb(b: usize) -> usize {
-    (b / 1024) / 1024
-}
-
 fn b_to_kb(b: usize) -> usize {
     b / 1024
 }
 
-fn simple_generation(turns: usize) {
+fn b_to_mb(b: usize) -> usize {
+    b_to_kb(b) / 1024
+}
+
+fn b_to_gb(b: usize) -> usize {
+    b_to_mb(b) / 1024
+}
+
+fn simple_generation(turns: usize, generate: bool) {
     let start = Instant::now();
     let capacity = mb_to_b(4096);
-    let allocator = Bump::with_capacity(0);
+    let allocator = Bump::with_capacity(2500);
     allocator.set_allocation_limit(Some(capacity));
     let allocation_duration = start.elapsed();
 
@@ -47,22 +52,52 @@ fn simple_generation(turns: usize) {
 
     let start = Instant::now();
     let mut state = KnownState::new_starting([Battlefield::Plains; 4]);
-    state.graveyard.add(Creature::Wall);
-    state.graveyard.add(Creature::Seer);
+    // state.graveyard.add(Creature::Wall);
     // state.graveyard.add(Creature::Mercenary);
-    // state.graveyard.add(Creature::Monarch);
-    state.battlefields.current = 2;
+    state.graveyard.add(Creature::Seer);
+    state.graveyard.add(Creature::Monarch);
+    state.battlefields.current = 1;
     let mut generator = GenerationContext::new(turns, state, &allocator);
     let state_init_duration = start.elapsed();
 
     println!("State init: {:?}", state_init_duration);
 
     let start = Instant::now();
-    let (_, stats) = generator.generate();
-    let generation_duration = start.elapsed();
+    let stats_estimated = generator.estimate_alloc();
+    let estimation_duration = start.elapsed();
 
-    println!("Generation: {:?}", generation_duration);
-    println!("Allocated: {:?}mb", b_to_mb(allocator.allocated_bytes()));
+    println!("Estimation: {:?}", estimation_duration);
+
+    let stats = if generate {
+        let start = Instant::now();
+        let (_, stats) = generator.generate();
+        let generation_duration = start.elapsed();
+
+        println!("Generation: {:?}", generation_duration);
+
+        stats
+    } else {
+        stats_estimated
+    };
+
+    println!("\nAllocation stats:");
+    println!("Allocated: {:?}MB", b_to_mb(allocator.allocated_bytes()));
+    println!(
+        "Remaining capacity: {:?}MB",
+        b_to_mb(allocator.chunk_capacity())
+    );
+    println!(
+        "Estimated: {:?}GB",
+        b_to_gb(stats_estimated.estimate_alloc())
+    );
+    println!(
+        "Required space for weight storage per battlefield config {}GB",
+        b_to_gb(stats.estimate_weight_storage_per_battlefield())
+    );
+    println!(
+        "Required space for weight storage of all battlefield configs {}GB",
+        b_to_gb(stats.estimate_weight_storage())
+    );
 
     println!("\nScope stats:");
     println!("Explored scopes: {}", stats.explored_scopes);
@@ -82,6 +117,7 @@ fn simple_generation(turns: usize) {
     println!("seer decision count: {}", stats.seer_total_decisions);
     println!("seer hidden count: {}", stats.seer_total_hidden);
     println!("seer branching count: {}", stats.seer_total_next);
+    println!("total weight count {}", stats.total_weights());
 
     println!("\nAverage stats:");
     println!("main decision count: {}", stats.main_average_decisions());
@@ -172,5 +208,5 @@ fn main() {
     // let duration = start.elapsed();
     // println!("Computed {} numbers in {:?}", total, duration);
 
-    simple_generation(3);
+    simple_generation(3, false);
 }
