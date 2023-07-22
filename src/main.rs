@@ -40,7 +40,7 @@ fn b_to_gb(b: usize) -> usize {
     b_to_mb(b) / 1024
 }
 
-fn simple_generation(turns: usize, generate: bool) {
+fn simple_generation(from: usize, turns: usize, generate: bool) {
     let start = Instant::now();
     let capacity = mb_to_b(4096);
     let allocator = Bump::with_capacity(2500);
@@ -52,11 +52,13 @@ fn simple_generation(turns: usize, generate: bool) {
 
     let start = Instant::now();
     let mut state = KnownState::new_starting([Battlefield::Plains; 4]);
-    // state.graveyard.add(Creature::Wall);
-    // state.graveyard.add(Creature::Mercenary);
-    state.graveyard.add(Creature::Seer);
-    state.graveyard.add(Creature::Monarch);
-    state.battlefields.current = 1;
+
+    for i in 0..from {
+        state.graveyard.add(Creature::CREATURES[2 * i]);
+        state.graveyard.add(Creature::CREATURES[2 * i + 1]);
+        state.battlefields.current += 1;
+    }
+
     let mut generator = GenerationContext::new(turns, state, &allocator);
     let mut estimator = EstimationContext::new(turns, state);
     let state_init_duration = start.elapsed();
@@ -209,5 +211,5 @@ fn main() {
     // let duration = start.elapsed();
     // println!("Computed {} numbers in {:?}", total, duration);
 
-    simple_generation(2, false);
+    simple_generation(1, 3, false);
 }

@@ -14,18 +14,21 @@ pub struct RevealIndex(pub usize);
 
 impl RevealIndex {
     // {{{ Main phase
+    #[inline(always)]
     pub fn encode_main_phase_reveal(choices: (Edict, Edict), edicts: (EdictSet, EdictSet)) -> Self {
         let index = edicts.1.indexof(choices.1).mix_indexof(choices.0, edicts.0);
 
         Self(index)
     }
 
+    #[inline(always)]
     pub fn decode_main_phase_reveal(self, edicts: (EdictSet, EdictSet)) -> Option<(Edict, Edict)> {
         let (p2_index, p1_choice) = self.0.unmix_indexof(edicts.0)?;
 
         Some((p1_choice, edicts.1.index(p2_index)?))
     }
 
+    #[inline(always)]
     pub fn main_phase_count(player_edicts: (EdictSet, EdictSet)) -> usize {
         player_edicts.0.len() * player_edicts.1.len()
     }
@@ -136,14 +139,17 @@ impl RevealIndex {
     }
     // }}}
     // {{{ Seer phase
+    #[inline(always)]
     pub fn encode_seer_phase_reveal(creature: Creature, graveyard: CreatureSet) -> Self {
         Self((!graveyard).indexof(creature))
     }
 
+    #[inline(always)]
     pub fn decode_seer_phase_reveal(self, graveyard: CreatureSet) -> Option<Creature> {
         (!graveyard).index(self.0)
     }
 
+    #[inline(always)]
     pub fn seer_phase_count(graveyard: CreatureSet) -> usize {
         (!graveyard).len()
     }

@@ -194,6 +194,7 @@ impl<'a> GenerationContext<'a> {
         stats.main_total_weights +=
             DecisionMatrix::estimate_weight_storage(hidden_count, vector_sizes.1);
         stats.explored_scopes += 1;
+
         Scope::Explored(ExploredScope { matrices, next })
     }
     // }}}
@@ -403,6 +404,16 @@ impl EstimationContext {
             self.estimate_main()
         }
     }
+
+    /// Reveal indices are not yet optimized for symmetrical
+    /// game states, so we fake it by dividing the number by this factor.
+    fn symmetrical_reveal_factor(is_symmetrical: bool) -> usize {
+        if is_symmetrical {
+            2
+        } else {
+            1
+        }
+    }
     // }}}
     // {{{ Main phase
     fn estimate_main(&self) -> GenerationStats {
@@ -419,9 +430,11 @@ impl EstimationContext {
             DecisionIndex::main_phase_index_count(edicts.1.len(), hand_size, seer_statuses.1),
         );
 
+        let is_symmetrical = self.state.is_symmetrical(self.is_first_turn);
         let hidden_count = HiddenIndex::main_index_count(hand_size, self.state.graveyard);
         let hidden_counts = (hidden_count, hidden_count);
-        let next_count = RevealIndex::main_phase_count(edicts);
+        let next_count =
+            RevealIndex::main_phase_count(edicts) / Self::symmetrical_reveal_factor(is_symmetrical);
         let (slice_estimate, mut stats) = Self::estimate_slice_alloc(next_count, move |index| {
             let choice = RevealIndex(index).decode_main_phase_reveal(edicts).unwrap();
             self.estimate_sabotage(choice)
@@ -430,7 +443,6 @@ impl EstimationContext {
         stats.main_total_next += next_count;
         stats.memory_estimate += slice_estimate;
 
-        let is_symmetrical = self.state.is_symmetrical(self.is_first_turn);
         stats.memory_estimate +=
             DecisionMatrices::estimate_alloc(is_symmetrical, hidden_counts, vector_sizes);
         stats.main_total_weights +=
@@ -474,8 +486,11 @@ impl EstimationContext {
             ),
         );
 
+        let is_symmetrical =
+            self.state.is_symmetrical(self.is_first_turn) && are_equal(edict_choices);
         let reveal_count =
-            RevealIndex::sabotage_phase_count(sabotage_statuses, seer_player, self.state.graveyard);
+            RevealIndex::sabotage_phase_count(sabotage_statuses, seer_player, self.state.graveyard)
+                / Self::symmetrical_reveal_factor(is_symmetrical);
 
         let (slice_estimate, mut stats) = Self::estimate_slice_alloc(reveal_count, move |index| {
             let (sabotage_choices, revealed_creature) = RevealIndex(index)
@@ -487,8 +502,6 @@ impl EstimationContext {
         stats.sabotage_total_next += reveal_count;
         stats.memory_estimate += slice_estimate;
 
-        let is_symmetrical =
-            self.state.is_symmetrical(self.is_first_turn) && are_equal(edict_choices);
         stats.memory_estimate +=
             DecisionMatrices::estimate_alloc(is_symmetrical, hidden_counts, vector_sizes);
         stats.main_total_weights +=
@@ -525,7 +538,11 @@ impl EstimationContext {
             HiddenIndex::sabotage_seer_index_count_old_hand(hand_size, graveyard, seer_statuses.1),
         );
 
-        let reveal_count = RevealIndex::seer_phase_count(graveyard);
+        let is_symmetrical = self.state.is_symmetrical(self.is_first_turn)
+            && are_equal(edict_choices)
+            && are_equal(sabotage_choices);
+        let reveal_count = RevealIndex::seer_phase_count(graveyard)
+            / Self::symmetrical_reveal_factor(is_symmetrical);
 
         let (slice_estimate, mut stats) = Self::estimate_slice_alloc(reveal_count, |index| {
             let seer_player_creature = RevealIndex(index)
@@ -561,9 +578,6 @@ impl EstimationContext {
 
         stats.memory_estimate += slice_estimate;
 
-        let is_symmetrical = self.state.is_symmetrical(self.is_first_turn)
-            && are_equal(edict_choices)
-            && are_equal(sabotage_choices);
         stats.memory_estimate +=
             DecisionMatrices::estimate_alloc(is_symmetrical, hidden_counts, vector_sizes);
         stats.main_total_weights +=

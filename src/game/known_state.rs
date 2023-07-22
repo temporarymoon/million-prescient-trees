@@ -86,6 +86,7 @@ impl KnownState {
     ///
     /// The first turn is usually the only symmetrical game state.
     pub fn is_symmetrical(&self, is_first_turn: bool) -> bool {
+        // false
         is_first_turn && are_equal(self.player_states) && self.score == Score::default()
     }
 }
