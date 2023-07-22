@@ -7,17 +7,16 @@ use crate::game::creature::Creature;
 use crate::game::edict::Edict;
 use crate::game::known_state::KnownState;
 use crate::game::simulate::BattleContext;
-use crate::game::status_effect::StatusEffect;
-use crate::game::types::{Player, TurnResult};
+use crate::game::types::TurnResult;
 use crate::helpers::bitfield::Bitfield;
-use crate::helpers::Pair;
+use crate::helpers::pair::{are_equal, Pair};
 use bumpalo::Bump;
+use derive_more::{Add, AddAssign};
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
+use std::iter::Sum;
 use std::mem::size_of;
-use std::println;
-use std::sync::Mutex;
 
-#[derive(Default, Copy, Clone)]
+#[derive(Default, Copy, Clone, Add, AddAssign)]
 pub struct GenerationStats {
     pub explored_scopes: usize,
     pub unexplored_scopes: usize,
@@ -103,9 +102,21 @@ impl GenerationStats {
     // }}}
 }
 
+impl Sum for GenerationStats {
+    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
+        let mut result = Self::default();
+        for i in iter {
+            result += i
+        }
+        result
+    }
+}
+
+// {{{ Generate
 pub struct GenerationContext<'a> {
     turns: usize,
     state: KnownState,
+    is_first_turn: bool,
     allocator: &'a Bump,
 }
 
@@ -115,6 +126,7 @@ impl<'a> GenerationContext<'a> {
             turns,
             state,
             allocator,
+            is_first_turn: true, // TODO: do we want to always assume this?
         }
     }
 
@@ -122,6 +134,7 @@ impl<'a> GenerationContext<'a> {
         Self {
             turns: self.turns - 1,
             state,
+            is_first_turn: false,
             ..*self
         }
     }
@@ -142,27 +155,6 @@ impl<'a> GenerationContext<'a> {
         self.generate_main(stats)
     }
 
-    // {{{ Helpers
-    /// Computes the size of the hand in the current state.
-    fn hand_size(&self) -> usize {
-        5 - self.state.graveyard.len() / 2
-    }
-
-    /// Returns a tuple specifying whether each player has the seer effect active.
-    fn seer_statuses(&self) -> Pair<bool> {
-        (
-            self.state.player_states.0.effects.has(StatusEffect::Seer),
-            self.state.player_states.1.effects.has(StatusEffect::Seer),
-        )
-    }
-
-    /// Picks a player to reveal their creature last.
-    /// If the seer effect is not active, this is arbitrary.
-    fn seer_player(&self) -> Player {
-        self.state.seer_player().unwrap_or(Player::Me)
-    }
-
-    // }}}
     // {{{ Main phase
     fn generate_main(&mut self, stats: &mut GenerationStats) -> Scope<'a> {
         let edicts = (
@@ -170,8 +162,8 @@ impl<'a> GenerationContext<'a> {
             self.state.player_states.1.edicts,
         );
 
-        let hand_size = self.hand_size();
-        let seer_statuses = self.seer_statuses();
+        let hand_size = self.state.hand_size();
+        let seer_statuses = self.state.seer_statuses();
 
         let vector_sizes = (
             DecisionIndex::main_phase_index_count(edicts.0.len(), hand_size, seer_statuses.0),
@@ -180,8 +172,10 @@ impl<'a> GenerationContext<'a> {
 
         let hidden_count = HiddenIndex::main_index_count(hand_size, self.state.graveyard);
         let matrices = DecisionMatrices::new(
-            DecisionMatrix::new(hidden_count, vector_sizes.0, self.allocator),
-            DecisionMatrix::new(hidden_count, vector_sizes.1, self.allocator),
+            self.state.is_symmetrical(self.is_first_turn),
+            (hidden_count, hidden_count),
+            vector_sizes,
+            self.allocator,
         );
 
         let next =
@@ -217,9 +211,9 @@ impl<'a> GenerationContext<'a> {
         stats: &mut GenerationStats,
         edict_choices: Pair<Edict>,
     ) -> Scope<'a> {
-        let hand_size = self.hand_size();
-        let seer_statuses = self.seer_statuses();
-        let seer_player = self.seer_player();
+        let hand_size = self.state.hand_size();
+        let seer_statuses = self.state.seer_statuses();
+        let seer_player = self.state.forced_seer_player();
         let sabotage_statuses = (
             edict_choices.0 == Edict::Sabotage,
             edict_choices.1 == Edict::Sabotage,
@@ -247,8 +241,10 @@ impl<'a> GenerationContext<'a> {
         );
 
         let matrices = DecisionMatrices::new(
-            DecisionMatrix::new(hidden_counts.0, vector_sizes.0, self.allocator),
-            DecisionMatrix::new(hidden_counts.1, vector_sizes.1, self.allocator),
+            self.state.is_symmetrical(self.is_first_turn) && are_equal(edict_choices),
+            hidden_counts,
+            vector_sizes,
+            self.allocator,
         );
 
         let next = self.allocator.alloc_slice_fill_with(
@@ -285,10 +281,10 @@ impl<'a> GenerationContext<'a> {
         non_seer_player_creature: Creature,
         sabotage_choices: Pair<SabotagePhaseChoice>,
     ) -> Scope<'a> {
-        let hand_size = self.hand_size();
+        let hand_size = self.state.hand_size();
         let seer_active = self.state.seer_is_active();
-        let seer_statuses = self.seer_statuses();
-        let seer_player = self.seer_player();
+        let seer_statuses = self.state.seer_statuses();
+        let seer_player = self.state.forced_seer_player();
 
         let mut graveyard = self.state.graveyard.clone();
         graveyard.add(non_seer_player_creature);
@@ -301,8 +297,12 @@ impl<'a> GenerationContext<'a> {
         );
 
         let matrices = DecisionMatrices::new(
-            DecisionMatrix::new(hidden_counts.0, vector_sizes.0, self.allocator),
-            DecisionMatrix::new(hidden_counts.1, vector_sizes.1, self.allocator),
+            self.state.is_symmetrical(self.is_first_turn)
+                && are_equal(sabotage_choices)
+                && are_equal(edict_choices),
+            hidden_counts,
+            vector_sizes,
+            self.allocator,
         );
 
         let next = self.allocator.alloc_slice_fill_with(
@@ -351,42 +351,68 @@ impl<'a> GenerationContext<'a> {
         Scope::Explored(ExploredScope { matrices, next })
     }
     // }}}
-    // {{{ Estimate
-    fn estimate_slice_alloc<T, F>(len: usize, mut f: F) -> usize
-    where
-        F: Sync + Fn(usize) -> T,
-    {
-        (0..len).into_par_iter().for_each(|i| {
-            f(i);
-        });
+}
+// }}}
+// {{{ Estimate
+#[derive(Clone, Copy)]
+pub struct EstimationContext {
+    turns: usize,
+    state: KnownState,
+    is_first_turn: bool,
+}
 
-        size_of::<T>() * len
-    }
-
-    pub fn estimate_alloc(&mut self) -> GenerationStats {
-        let mut stats = GenerationStats::default();
-        self.estimate_turn(&mut stats);
-        stats
-    }
-
-    fn estimate_turn(&mut self, stats: &mut GenerationStats) {
-        if self.turns == 0 {
-            stats.unexplored_scopes += 1;
-            // let state = self.allocator.alloc(self.state);
-        } else {
-            self.estimate_main(stats);
+impl EstimationContext {
+    pub fn new(turns: usize, state: KnownState) -> Self {
+        Self {
+            turns,
+            state,
+            is_first_turn: true,
         }
     }
 
+    // {{{ Helpers
+    fn next_turn(&self, state: KnownState) -> Self {
+        Self {
+            turns: self.turns - 1,
+            state,
+            is_first_turn: false,
+            ..*self
+        }
+    }
+
+    fn estimate_slice_alloc<T: Sum + Send, F>(len: usize, f: F) -> (usize, T)
+    where
+        F: Sync + Fn(usize) -> T,
+    {
+        let combined = (0..len).into_par_iter().map(|i| f(i)).sum();
+        let size = size_of::<T>() * len;
+
+        (size, combined)
+    }
+
+    pub fn estimate_alloc(&mut self) -> GenerationStats {
+        self.estimate_turn()
+    }
+
+    fn estimate_turn(&mut self) -> GenerationStats {
+        if self.turns == 0 {
+            let mut stats = GenerationStats::default();
+            stats.unexplored_scopes += 1;
+            stats
+        } else {
+            self.estimate_main()
+        }
+    }
+    // }}}
     // {{{ Main phase
-    fn estimate_main(&mut self, stat_mutex: Mutex<GenerationStats>) {
+    fn estimate_main(&self) -> GenerationStats {
         let edicts = (
             self.state.player_states.0.edicts,
             self.state.player_states.1.edicts,
         );
 
-        let hand_size = self.hand_size();
-        let seer_statuses = self.seer_statuses();
+        let hand_size = self.state.hand_size();
+        let seer_statuses = self.state.seer_statuses();
 
         let vector_sizes = (
             DecisionIndex::main_phase_index_count(edicts.0.len(), hand_size, seer_statuses.0),
@@ -394,32 +420,34 @@ impl<'a> GenerationContext<'a> {
         );
 
         let hidden_count = HiddenIndex::main_index_count(hand_size, self.state.graveyard);
+        let hidden_counts = (hidden_count, hidden_count);
         let next_count = RevealIndex::main_phase_count(edicts);
-        let slice_estimate = Self::estimate_slice_alloc(next_count, |index| {
+        let (slice_estimate, mut stats) = Self::estimate_slice_alloc(next_count, move |index| {
             let choice = RevealIndex(index).decode_main_phase_reveal(edicts).unwrap();
-            self.estimate_sabotage(stat_mutex, choice)
+            self.estimate_sabotage(choice)
         });
 
-        let mut stats = stat_mutex.lock().unwrap();
         stats.main_total_next += next_count;
         stats.memory_estimate += slice_estimate;
-        stats.memory_estimate += DecisionMatrix::estimate_alloc(hidden_count, vector_sizes.0);
-        stats.memory_estimate += DecisionMatrix::estimate_alloc(hidden_count, vector_sizes.1);
+
+        let is_symmetrical = self.state.is_symmetrical(self.is_first_turn);
+        stats.memory_estimate +=
+            DecisionMatrices::estimate_alloc(is_symmetrical, hidden_counts, vector_sizes);
         stats.main_total_weights +=
-            DecisionMatrix::estimate_weight_storage(hidden_count, vector_sizes.0);
-        stats.main_total_weights +=
-            DecisionMatrix::estimate_weight_storage(hidden_count, vector_sizes.1);
+            DecisionMatrices::estimate_weight_storage(is_symmetrical, hidden_counts, vector_sizes);
+
         stats.main_count += 1;
         stats.main_total_hidden += hidden_count * 2;
         stats.main_total_decisions += vector_sizes.0 + vector_sizes.1;
         stats.explored_scopes += 1;
+        stats
     }
     // }}}
     // {{{ Sabotage phase
-    fn estimate_sabotage(&mut self, stats: Mutex<GenerationStats>, edict_choices: Pair<Edict>) {
-        let hand_size = self.hand_size();
-        let seer_statuses = self.seer_statuses();
-        let seer_player = self.seer_player();
+    fn estimate_sabotage(&self, edict_choices: Pair<Edict>) -> GenerationStats {
+        let hand_size = self.state.hand_size();
+        let seer_statuses = self.state.seer_statuses();
+        let seer_player = self.state.forced_seer_player();
         let sabotage_statuses = (
             edict_choices.0 == Edict::Sabotage,
             edict_choices.1 == Edict::Sabotage,
@@ -429,8 +457,8 @@ impl<'a> GenerationContext<'a> {
             DecisionIndex::sabotage_phase_index_count_old_hand(hand_size, self.state.graveyard);
 
         let vector_sizes = (
-            Self::sabotage_vector_size(sabotage_statuses.0, guess_count),
-            Self::sabotage_vector_size(sabotage_statuses.1, guess_count),
+            GenerationContext::sabotage_vector_size(sabotage_statuses.0, guess_count),
+            GenerationContext::sabotage_vector_size(sabotage_statuses.1, guess_count),
         );
 
         let hidden_counts = (
@@ -446,27 +474,25 @@ impl<'a> GenerationContext<'a> {
             ),
         );
 
-        stats.memory_estimate += DecisionMatrix::estimate_alloc(hidden_counts.0, vector_sizes.0);
-        stats.memory_estimate += DecisionMatrix::estimate_alloc(hidden_counts.1, vector_sizes.1);
-        stats.sabotage_total_weights +=
-            DecisionMatrix::estimate_weight_storage(hidden_counts.0, vector_sizes.0);
-        stats.sabotage_total_weights +=
-            DecisionMatrix::estimate_weight_storage(hidden_counts.1, vector_sizes.1);
+        let reveal_count =
+            RevealIndex::sabotage_phase_count(sabotage_statuses, seer_player, self.state.graveyard);
 
-        stats.memory_estimate += Self::estimate_slice_alloc(
-            RevealIndex::sabotage_phase_count(sabotage_statuses, seer_player, self.state.graveyard),
-            |index| {
-                let (sabotage_choices, revealed_creature) = RevealIndex(index)
-                    .decode_sabotage_phase_reveal(
-                        sabotage_statuses,
-                        seer_player,
-                        self.state.graveyard,
-                    )
-                    .unwrap();
-                stats.sabotage_total_next += 1;
-                self.estimate_seer(stats, edict_choices, revealed_creature, sabotage_choices)
-            },
-        );
+        let (slice_estimate, mut stats) = Self::estimate_slice_alloc(reveal_count, move |index| {
+            let (sabotage_choices, revealed_creature) = RevealIndex(index)
+                .decode_sabotage_phase_reveal(sabotage_statuses, seer_player, self.state.graveyard)
+                .unwrap();
+            self.estimate_seer(edict_choices, revealed_creature, sabotage_choices)
+        });
+
+        stats.sabotage_total_next += reveal_count;
+        stats.memory_estimate += slice_estimate;
+
+        let is_symmetrical =
+            self.state.is_symmetrical(self.is_first_turn) && are_equal(edict_choices);
+        stats.memory_estimate +=
+            DecisionMatrices::estimate_alloc(is_symmetrical, hidden_counts, vector_sizes);
+        stats.main_total_weights +=
+            DecisionMatrices::estimate_weight_storage(is_symmetrical, hidden_counts, vector_sizes);
 
         stats.sabotage_count += 1;
         stats.sabotage_total_hidden += hidden_counts.0 + hidden_counts.1;
@@ -474,20 +500,20 @@ impl<'a> GenerationContext<'a> {
         stats.sabotage_total_weights +=
             hidden_counts.0 * vector_sizes.0 + hidden_counts.1 * vector_sizes.1;
         stats.explored_scopes += 1;
+        stats
     }
     // }}}
     // {{{ Seer phase
     fn estimate_seer(
-        &mut self,
-        stats: Mutex<GenerationStats>,
+        &self,
         edict_choices: Pair<Edict>,
         non_seer_player_creature: Creature,
         sabotage_choices: Pair<SabotagePhaseChoice>,
-    ) {
-        let hand_size = self.hand_size();
+    ) -> GenerationStats {
+        let hand_size = self.state.hand_size();
         let seer_active = self.state.seer_is_active();
-        let seer_statuses = self.seer_statuses();
-        let seer_player = self.seer_player();
+        let seer_statuses = self.state.seer_statuses();
+        let seer_player = self.state.forced_seer_player();
 
         let mut graveyard = self.state.graveyard.clone();
         graveyard.add(non_seer_player_creature);
@@ -499,50 +525,57 @@ impl<'a> GenerationContext<'a> {
             HiddenIndex::sabotage_seer_index_count_old_hand(hand_size, graveyard, seer_statuses.1),
         );
 
-        stats.memory_estimate += DecisionMatrix::estimate_alloc(hidden_counts.0, vector_sizes.0);
-        stats.memory_estimate += DecisionMatrix::estimate_alloc(hidden_counts.1, vector_sizes.1);
-        stats.seer_total_weights +=
-            DecisionMatrix::estimate_weight_storage(hidden_counts.0, vector_sizes.0);
-        stats.seer_total_weights +=
-            DecisionMatrix::estimate_weight_storage(hidden_counts.1, vector_sizes.1);
+        let reveal_count = RevealIndex::seer_phase_count(graveyard);
 
+        let (slice_estimate, mut stats) = Self::estimate_slice_alloc(reveal_count, |index| {
+            let seer_player_creature = RevealIndex(index)
+                .decode_seer_phase_reveal(graveyard)
+                .unwrap();
+
+            let creature_choices =
+                seer_player.order_as((seer_player_creature, non_seer_player_creature));
+
+            let context = BattleContext {
+                main_choices: (
+                    FinalMainPhaseChoice::new(creature_choices.0, edict_choices.0),
+                    FinalMainPhaseChoice::new(creature_choices.1, edict_choices.1),
+                ),
+                sabotage_choices,
+                state: self.state,
+            };
+
+            match context.advance_known_state().1 {
+                TurnResult::Finished(_) => {
+                    let mut stats = GenerationStats::default();
+                    stats.completed_scopes += 1;
+                    stats
+                }
+                TurnResult::Unfinished(mut state) => {
+                    state.graveyard.add(non_seer_player_creature);
+                    state.graveyard.add(seer_player_creature);
+
+                    self.next_turn(state).estimate_turn()
+                }
+            }
+        });
+
+        stats.memory_estimate += slice_estimate;
+
+        let is_symmetrical = self.state.is_symmetrical(self.is_first_turn)
+            && are_equal(edict_choices)
+            && are_equal(sabotage_choices);
         stats.memory_estimate +=
-            Self::estimate_slice_alloc(RevealIndex::seer_phase_count(graveyard), |index| {
-                let seer_player_creature = RevealIndex(index)
-                    .decode_seer_phase_reveal(graveyard)
-                    .unwrap();
+            DecisionMatrices::estimate_alloc(is_symmetrical, hidden_counts, vector_sizes);
+        stats.main_total_weights +=
+            DecisionMatrices::estimate_weight_storage(is_symmetrical, hidden_counts, vector_sizes);
 
-                let creature_choices =
-                    seer_player.order_as((seer_player_creature, non_seer_player_creature));
-
-                let context = BattleContext {
-                    main_choices: (
-                        FinalMainPhaseChoice::new(creature_choices.0, edict_choices.0),
-                        FinalMainPhaseChoice::new(creature_choices.1, edict_choices.1),
-                    ),
-                    sabotage_choices,
-                    state: self.state,
-                };
-
-                stats.seer_total_next += 1;
-                match context.advance_known_state().1 {
-                    TurnResult::Finished(_) => {
-                        stats.completed_scopes += 1;
-                    }
-                    TurnResult::Unfinished(mut state) => {
-                        state.graveyard.add(non_seer_player_creature);
-                        state.graveyard.add(seer_player_creature);
-
-                        self.next_turn(state).estimate_turn(stats);
-                    }
-                };
-            });
-
+        stats.seer_total_next += reveal_count;
         stats.seer_count += 1;
         stats.seer_total_hidden += hidden_counts.0 + hidden_counts.1;
         stats.seer_total_decisions += vector_sizes.0 + vector_sizes.1;
         stats.explored_scopes += 1;
+        stats
     }
     // }}}
-    // }}}
 }
+// }}}

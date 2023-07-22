@@ -7,7 +7,7 @@ use super::status_effect::{StatusEffect, StatusEffectSet};
 use super::types::{BattleResult, Player, TurnResult};
 use crate::game::edict::EdictSet;
 use crate::helpers::bitfield::Bitfield;
-use crate::helpers::Pair;
+use crate::helpers::pair::Pair;
 use std::debug_assert_eq;
 
 // Context required resolving a battle

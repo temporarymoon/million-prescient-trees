@@ -1,5 +1,4 @@
-use crate::helpers::swap::conditional_swap;
-use crate::helpers::Pair;
+use crate::helpers::pair::{conditional_swap, Pair};
 use std::ops::Add;
 use std::ops::Not;
 

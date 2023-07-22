@@ -1,5 +1,6 @@
-use super::Pair;
+pub type Pair<T> = (T, T);
 
+// {{{ Swap
 /// Trait which allows swapping the elements of some structure.
 pub trait Swap {
     fn swap(self) -> Self;
@@ -24,3 +25,10 @@ where
         pair
     }
 }
+// }}}
+// {{{ Other helpes
+/// Returns whether both elements of a pair are equal.
+pub fn are_equal<T: Eq>(pair: Pair<T>) -> bool {
+    pair.0 == pair.1
+}
+// }}}

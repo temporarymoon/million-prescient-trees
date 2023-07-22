@@ -5,7 +5,8 @@ use std::u8;
 
 use crate::game::known_state::KnownState;
 use crate::game::types::{Player, Score};
-use crate::helpers::{normalize_vec, roulette, Pair};
+use crate::helpers::pair::{are_equal, Pair};
+use crate::helpers::{normalize_vec, roulette};
 use bumpalo::Bump;
 use rand::Rng;
 
@@ -138,12 +139,11 @@ impl<'a> DecisionMatrix<'a> {
     }
 
     pub fn estimate_weight_storage(matrix_size: usize, vector_size: usize) -> usize {
-        size_of::<Self>()
-            + if vector_size == 1 {
-                1
-            } else {
-                matrix_size * vector_size * 2
-            }
+        if vector_size == 1 {
+            1
+        } else {
+            matrix_size * vector_size * 2
+        }
     }
 
     pub fn new(matrix_size: usize, vector_size: usize, allocator: &'a Bump) -> DecisionMatrix<'a> {
@@ -179,19 +179,77 @@ impl<'a> DecisionMatrix<'a> {
 // }}}
 // {{{ Decision matrices
 /// A pair of decision matrices
-pub struct DecisionMatrices<'a> {
-    pub matrices: Pair<DecisionMatrix<'a>>,
+pub enum DecisionMatrices<'a> {
+    Symmetrical(DecisionMatrix<'a>),
+    Asymmetrical(Pair<DecisionMatrix<'a>>),
 }
 
 impl<'a> DecisionMatrices<'a> {
-    pub fn new(me: DecisionMatrix<'a>, you: DecisionMatrix<'a>) -> Self {
-        Self {
-            matrices: (me, you),
+    pub fn new(
+        is_symmetrical: bool,
+        hidden_counts: Pair<usize>,
+        decision_counts: Pair<usize>,
+        allocator: &'a Bump,
+    ) -> Self {
+        if is_symmetrical {
+            assert!(are_equal(decision_counts));
+            assert!(are_equal(hidden_counts));
+
+            Self::Symmetrical(DecisionMatrix::new(
+                hidden_counts.0,
+                decision_counts.0,
+                allocator,
+            ))
+        } else {
+            let me = DecisionMatrix::new(hidden_counts.0, decision_counts.0, allocator);
+            let you = DecisionMatrix::new(hidden_counts.1, decision_counts.1, allocator);
+
+            Self::Asymmetrical((me, you))
         }
     }
 
+    pub fn estimate_alloc(
+        is_symmetrical: bool,
+        hidden_counts: Pair<usize>,
+        decision_counts: Pair<usize>,
+    ) -> usize {
+        if is_symmetrical {
+            assert!(are_equal(decision_counts));
+            assert!(are_equal(hidden_counts));
+
+            DecisionMatrix::estimate_alloc(hidden_counts.0, decision_counts.0)
+        } else {
+            let me = DecisionMatrix::estimate_alloc(hidden_counts.0, decision_counts.0);
+            let you = DecisionMatrix::estimate_alloc(hidden_counts.1, decision_counts.1);
+
+            me + you
+        }
+    }
+
+    pub fn estimate_weight_storage(
+        is_symmetrical: bool,
+        hidden_counts: Pair<usize>,
+        decision_counts: Pair<usize>,
+    ) -> usize {
+        if is_symmetrical {
+            assert!(are_equal(decision_counts));
+            assert!(are_equal(hidden_counts));
+
+            DecisionMatrix::estimate_weight_storage(hidden_counts.0, decision_counts.0)
+        } else {
+            let me = DecisionMatrix::estimate_weight_storage(hidden_counts.0, decision_counts.0);
+            let you = DecisionMatrix::estimate_weight_storage(hidden_counts.1, decision_counts.1);
+
+            me + you
+        }
+    }
+
+    /// Compute the number of choices each player has.
     pub fn decision_count(&self) -> (usize, usize) {
-        (self.matrices.0.len(), self.matrices.1.len())
+        match self {
+            Self::Symmetrical(matrix) => (matrix.len(), matrix.len()),
+            Self::Asymmetrical((me, you)) => (me.len(), you.len()),
+        }
     }
 }
 // }}}

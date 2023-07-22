@@ -15,7 +15,7 @@ use std::mem::size_of;
 use std::println;
 use std::time::Instant;
 
-use crate::cfr::decision::Scope;
+use crate::cfr::generate::EstimationContext;
 use crate::game::creature::Creature;
 use crate::helpers::bitfield::Bitfield;
 
@@ -58,12 +58,13 @@ fn simple_generation(turns: usize, generate: bool) {
     state.graveyard.add(Creature::Monarch);
     state.battlefields.current = 1;
     let mut generator = GenerationContext::new(turns, state, &allocator);
+    let mut estimator = EstimationContext::new(turns, state);
     let state_init_duration = start.elapsed();
 
     println!("State init: {:?}", state_init_duration);
 
     let start = Instant::now();
-    let stats_estimated = generator.estimate_alloc();
+    let stats_estimated = estimator.estimate_alloc();
     let estimation_duration = start.elapsed();
 
     println!("Estimation: {:?}", estimation_duration);
@@ -208,5 +209,5 @@ fn main() {
     // let duration = start.elapsed();
     // println!("Computed {} numbers in {:?}", total, duration);
 
-    simple_generation(3, false);
+    simple_generation(2, false);
 }

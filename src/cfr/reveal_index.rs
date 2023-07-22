@@ -5,8 +5,8 @@ use crate::game::creature::{Creature, CreatureSet};
 use crate::game::edict::{Edict, EdictSet};
 use crate::game::types::Player;
 use crate::helpers::bitfield::Bitfield;
+use crate::helpers::pair::Pair;
 use crate::helpers::ranged::MixRanged;
-use crate::helpers::Pair;
 
 /// Encodes all the information revealed at the end of a phase.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
