@@ -15,7 +15,6 @@ use derive_more::{Add, AddAssign};
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use std::iter::Sum;
 use std::mem::size_of;
-use std::todo;
 
 // {{{ Stats
 #[derive(Default, Copy, Clone, Add, AddAssign)]
@@ -207,7 +206,7 @@ pub struct GenerationContext<'a> {
 
 impl<'a> GenerationContext<'a> {
     // {{{ Generic generation
-    fn generate_generic<P: Phase>(&mut self, phase: P) -> Scope<'a> {
+    fn generate_generic<P: Phase>(&self, phase: P) -> Scope<'a> {
         if self.turns == 0 {
             return Scope::Unexplored(UnexploredScope { state: None });
         }
@@ -228,12 +227,8 @@ impl<'a> GenerationContext<'a> {
                     .advance_state(&self.state, RevealIndex(index))
                     .unwrap();
 
-                let mut new_self = GenerationContext::new(
-                    if P::ADVANCES_TURN {
-                        self.turns - 1
-                    } else {
-                        self.turns
-                    },
+                let new_self = &Self::new(
+                    self.turns - P::ADVANCES_TURN as usize,
                     new_state,
                     self.allocator,
                 );
