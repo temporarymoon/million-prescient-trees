@@ -34,14 +34,12 @@ impl KnownState {
 
     /// Returns the player under the seer status effect.
     pub fn seer_player(&self) -> Option<Player> {
-        if self
-            .player_states[0]
+        if self.player_states[0]
             .effects
             .has(super::status_effect::StatusEffect::Seer)
         {
             Some(Player::Me)
-        } else if self
-            .player_states[1]
+        } else if self.player_states[1]
             .effects
             .has(super::status_effect::StatusEffect::Seer)
         {
@@ -65,7 +63,8 @@ impl KnownState {
 
     /// Returns a tuple specifying whether each player has the seer effect active.
     pub fn seer_statuses(&self) -> Pair<bool> {
-        self.player_states.map(|s| s.effects.has(StatusEffect::Seer))
+        self.player_states
+            .map(|s| s.effects.has(StatusEffect::Seer))
     }
 
     /// Picks a player to reveal their creature last.
@@ -153,5 +152,10 @@ impl KnownState {
         // }}}
 
         self.score(player) > Score(max_opponent_gain)
+    }
+
+    /// Returns the edicts owned by each player.
+    pub fn edict_sets(&self) -> Pair<EdictSet> {
+        self.player_states.map(|s| s.edicts)
     }
 }

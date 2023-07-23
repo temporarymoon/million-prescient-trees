@@ -15,7 +15,9 @@ use derive_more::{Add, AddAssign};
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use std::iter::Sum;
 use std::mem::size_of;
+use std::todo;
 
+// {{{ Stats
 #[derive(Default, Copy, Clone, Add, AddAssign)]
 pub struct GenerationStats {
     pub explored_scopes: usize,
@@ -111,8 +113,92 @@ impl Sum for GenerationStats {
         result
     }
 }
+// }}}
+// {{{ Trait based approach
+trait Phase {
+    type Next: Phase;
 
+    const ADVANCES_TURN: bool;
+
+    fn is_symmetrical(&self, state: &KnownState) -> bool;
+    fn advance_state(
+        &self,
+        state: &KnownState,
+        reveal_index: RevealIndex,
+    ) -> Option<(Self::Next, KnownState)>;
+
+    fn decision_counts(&self, state: &KnownState) -> Pair<usize>;
+    fn hidden_counts(&self, state: &KnownState) -> Pair<usize>;
+    fn reveal_count(&self, state: &KnownState) -> usize;
+}
+// }}}
+// {{{ Instances
+// {{{ Main phase
+struct MainPhase {}
+
+impl Phase for MainPhase {
+    type Next = SabotagePhase;
+    const ADVANCES_TURN: bool = false;
+
+    fn is_symmetrical(&self, state: &KnownState) -> bool {
+        true
+    }
+
+    fn decision_counts(&self, state: &KnownState) -> Pair<usize> {
+        let hand_size = state.hand_size();
+        let seer_statuses = state.seer_statuses();
+
+        state
+            .edict_sets()
+            .zip(seer_statuses)
+            .map(|(edicts, seer_status)| {
+                DecisionIndex::main_phase_index_count(edicts.len(), hand_size, seer_status)
+            })
+    }
+
+    fn hidden_counts(&self, state: &KnownState) -> Pair<usize> {
+        let hand_size = state.hand_size();
+        let count = HiddenIndex::main_index_count(hand_size, state.graveyard);
+
+        [count; 2]
+    }
+
+    fn reveal_count(&self, state: &KnownState) -> usize {
+        RevealIndex::main_phase_count(state.edict_sets())
+    }
+
+    fn advance_state(
+        &self,
+        state: &KnownState,
+        reveal_index: RevealIndex,
+    ) -> Option<(Self::Next, KnownState)> {
+        let edict_choices = reveal_index
+            .decode_main_phase_reveal(state.edict_sets())
+            .unwrap();
+
+        Some((SabotagePhase::new(edict_choices), *state))
+    }
+}
+// }}}
+// {{{ Sabotage phase
+struct SabotagePhase {
+    pub edict_choices: Pair<Edict>,
+}
+
+impl SabotagePhase {
+    fn new(edict_choices: Pair<Edict>) -> Self {
+        Self { edict_choices }
+    }
+}
+
+impl Phase for SabotagePhase {}
+// }}}
+// {{{ Seer phase
+struct SeerPhase {}
+// }}}
+// }}}
 // {{{ Generate
+#[derive(Clone, Copy)]
 pub struct GenerationContext<'a> {
     turns: usize,
     state: KnownState,
@@ -120,6 +206,45 @@ pub struct GenerationContext<'a> {
 }
 
 impl<'a> GenerationContext<'a> {
+    // {{{ Generic generation
+    fn generate_generic<P: Phase>(&mut self, phase: P) -> Scope<'a> {
+        if self.turns == 0 {
+            return Scope::Unexplored(UnexploredScope { state: None });
+        }
+
+        let vector_sizes = phase.decision_counts(&self.state);
+        let hidden_counts = phase.hidden_counts(&self.state);
+        let matrices = DecisionMatrices::new(
+            self.state.is_symmetrical() && phase.is_symmetrical(&self.state),
+            hidden_counts,
+            vector_sizes,
+            self.allocator,
+        );
+
+        let next = self
+            .allocator
+            .alloc_slice_fill_with(phase.reveal_count(&self.state), |index| {
+                let (next, new_state) = phase
+                    .advance_state(&self.state, RevealIndex(index))
+                    .unwrap();
+
+                let mut new_self = GenerationContext::new(
+                    if P::ADVANCES_TURN {
+                        self.turns - 1
+                    } else {
+                        self.turns
+                    },
+                    new_state,
+                    self.allocator,
+                );
+
+                new_self.generate_generic::<P::Next>(next)
+            });
+
+        Scope::Explored(ExploredScope { matrices, next })
+    }
+    // }}}
+    // {{{ Helpers
     pub fn new(turns: usize, state: KnownState, allocator: &'a Bump) -> Self {
         Self {
             turns,
@@ -148,7 +273,7 @@ impl<'a> GenerationContext<'a> {
 
         self.generate_main()
     }
-
+    // }}}
     // {{{ Main phase
     fn generate_main(&mut self) -> Scope<'a> {
         let edicts = self.state.player_states.map(|s| s.edicts);
