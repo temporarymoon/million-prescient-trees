@@ -8,6 +8,9 @@ use crate::helpers::bitfield::Bitfield;
 use crate::helpers::pair::Pair;
 use crate::helpers::ranged::MixRanged;
 
+use super::decision_index::DecisionIndex;
+use super::hidden_index::HiddenIndex;
+
 /// Encodes all the information revealed at the end of a phase.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
 pub struct RevealIndex(pub usize);
@@ -15,22 +18,60 @@ pub struct RevealIndex(pub usize);
 impl RevealIndex {
     // {{{ Main phase
     #[inline(always)]
-    pub fn encode_main_phase_reveal(choices: (Edict, Edict), edicts: (EdictSet, EdictSet)) -> Self {
-        let index = edicts.1.indexof(choices.1).mix_indexof(choices.0, edicts.0);
+    pub fn encode_main_phase_reveal(choices: Pair<Edict>, edicts: Pair<EdictSet>) -> Self {
+        let index = edicts[1]
+            .indexof(choices[1])
+            .mix_indexof(choices[0], edicts[0]);
 
         Self(index)
     }
 
     #[inline(always)]
-    pub fn decode_main_phase_reveal(self, edicts: (EdictSet, EdictSet)) -> Option<(Edict, Edict)> {
-        let (p2_index, p1_choice) = self.0.unmix_indexof(edicts.0)?;
+    pub fn decode_main_phase_reveal(self, edict_sets: Pair<EdictSet>) -> Option<Pair<Edict>> {
+        let (p2_index, p1_choice) = self.0.unmix_indexof(edict_sets[0])?;
 
-        Some((p1_choice, edicts.1.index(p2_index)?))
+        Some([p1_choice, edict_sets[1].index(p2_index)?])
     }
 
     #[inline(always)]
-    pub fn main_phase_count(player_edicts: (EdictSet, EdictSet)) -> usize {
-        player_edicts.0.len() * player_edicts.1.len()
+    pub fn main_phase_count(player_edicts: Pair<EdictSet>) -> usize {
+        player_edicts[0].len() * player_edicts[1].len()
+    }
+
+    pub fn from_decisions(
+        hidden: Pair<HiddenIndex>,
+        decisions: Pair<DecisionIndex>,
+        graveyard: CreatureSet,
+        hand_size: usize,
+        edict_sets: Pair<EdictSet>,
+        seer_active: bool,
+    ) -> Option<(Self, Pair<HiddenIndex>)> {
+        let mut hands = hidden.try_map(|h| h.decode_main_index(graveyard, hand_size))?;
+        let decisions =
+            decisions
+                .zip(edict_sets)
+                .zip(hands)
+                .try_map(|((decision, edicts), hand)| {
+                    decision.decode_main_phase_index(edicts, hand, seer_active)
+                })?;
+
+        let creature_choices = decisions.map(|i| i.0);
+        let edicts = decisions.map(|i| i.1);
+        let reveal_index = Self::encode_main_phase_reveal(edicts, edict_sets);
+
+        let mut graveyard = graveyard; // Is this necessary?
+
+        for (i, creature_choice) in creature_choices.iter().enumerate() {
+            let played = creature_choice.as_creature_set();
+            graveyard |= played;
+            hands[i] -= played;
+        }
+
+        let hidden_indices = creature_choices.zip(hands).map(|(creature_choice, hand)| {
+            HiddenIndex::encode_sabotage_seer_index(creature_choice, hand, graveyard)
+        });
+
+        Some((reveal_index, hidden_indices))
     }
     // }}}
     // {{{ Sabotage phase
@@ -80,7 +121,7 @@ impl RevealIndex {
     ) -> Option<(Pair<SabotagePhaseChoice>, Creature)> {
         let possibilities = !graveyard; // Pool of choices for sabotage guesses
         let mut encoded = self.0;
-        let mut sabotage_choices = (None, None);
+        let mut sabotage_choices = [None; 2];
 
         for player in Player::PLAYERS.iter().rev() {
             if player.select(sabotage_statuses) {
@@ -112,13 +153,11 @@ impl RevealIndex {
         // How many times the sabotage card was played this turn
         let mut sabotage_play_count = 0;
 
-        if sabotage_statuses.0 {
-            sabotage_play_count += 1;
-        };
-
-        if sabotage_statuses.1 {
-            sabotage_play_count += 1;
-        };
+        for status in sabotage_statuses {
+            if status {
+                sabotage_play_count += 1;
+            }
+        }
 
         let mut reveal_possibilities = (!graveyard).len();
 
@@ -195,7 +234,7 @@ mod tests {
                                     }
 
                                     let non_seer_player_sabotage =
-                                        (!seer_player).select((first_sabotage, second_sabotage));
+                                        (!seer_player).select([first_sabotage, second_sabotage]);
 
                                     // The non seer player revealed `reveal_creature`, and would
                                     // have no reason to sabotage their own creature.
@@ -203,7 +242,7 @@ mod tests {
                                         continue;
                                     }
 
-                                    let sabotage_choices = (first_sabotage, second_sabotage);
+                                    let sabotage_choices = [first_sabotage, second_sabotage];
 
                                     let encoded = RevealIndex::encode_sabotage_phase_reveal(
                                         sabotage_choices,
@@ -213,7 +252,7 @@ mod tests {
                                     );
 
                                     let count = RevealIndex::sabotage_phase_count(
-                                        (first_sabotage_status, second_sabotage_status),
+                                        [first_sabotage_status, second_sabotage_status],
                                         seer_player,
                                         graveyard,
                                     );
@@ -221,7 +260,7 @@ mod tests {
                                     assert!(encoded.0 < count, "Encoded value was {}, even though the total count was supposed to be {}", encoded.0, count);
 
                                     let decoded = encoded.decode_sabotage_phase_reveal(
-                                        (first_sabotage_status, second_sabotage_status),
+                                        [first_sabotage_status, second_sabotage_status],
                                         seer_player,
                                         graveyard,
                                     );

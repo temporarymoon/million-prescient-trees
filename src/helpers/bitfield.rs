@@ -316,6 +316,43 @@ macro_rules! make_bitfield {
                 Self(self.0 & rhs.0)
             }
         }
+
+        impl std::ops::BitOrAssign for $name {
+            #[inline(always)]
+            fn bitor_assign(&mut self, rhs: Self) {
+                self.0 |= rhs.0; 
+            }
+        }
+
+        impl std::ops::BitAndAssign for $name {
+            #[inline(always)]
+            fn bitand_assign(&mut self, rhs: Self) {
+                self.0 &= rhs.0; 
+            }
+        }
+
+        impl std::ops::Sub<$name> for $name {
+            type Output = Self;
+
+            /// Returns the difference between two bitfields.
+            ///
+            /// # Examples
+            ///
+            /// ```
+            /// 0b0111 - 0b1010 // 0x0101
+            /// ```
+            #[inline(always)]
+            fn sub(self, rhs: Self) -> Self::Output {
+                Self(self.0 & !rhs.0)
+            }
+        }
+
+        impl std::ops::SubAssign<$name> for $name {
+            #[inline(always)]
+            fn sub_assign(&mut self, rhs: Self) {
+                self.0 &= !rhs.0;
+            }
+        }
         // }}}
         // {{{ Iterator
         pub struct $iterator {

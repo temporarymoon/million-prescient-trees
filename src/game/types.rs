@@ -1,6 +1,8 @@
 use crate::helpers::pair::{conditional_swap, Pair};
 use std::ops::Add;
+use std::ops::Neg;
 use std::ops::Not;
+use std::ops::Sub;
 
 // {{{ Players
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -28,10 +30,10 @@ impl Player {
     /// where the first and second elements represents the data
     /// for the current and other players respectively.
     #[inline(always)]
-    pub fn select<T>(self, pair: Pair<T>) -> T {
+    pub fn select<T: Copy>(self, pair: Pair<T>) -> T {
         match self {
-            Player::Me => pair.0,
-            Player::You => pair.1,
+            Player::Me => pair[0],
+            Player::You => pair[1],
         }
     }
 
@@ -46,8 +48,8 @@ impl Player {
     #[inline(always)]
     pub fn select_mut<T>(self, pair: &mut Pair<T>) -> &mut T {
         match self {
-            Player::Me => &mut pair.0,
-            Player::You => &mut pair.1,
+            Player::Me => &mut pair[0],
+            Player::You => &mut pair[1],
         }
     }
 
@@ -57,7 +59,7 @@ impl Player {
     /// pair.1 == (!player).select(player.order_as(pair))
     /// ```
     #[inline(always)]
-    pub fn order_as<T>(self, pair: Pair<T>) -> Pair<T> {
+    pub fn order_as<T: Copy>(self, pair: Pair<T>) -> Pair<T> {
         conditional_swap(pair, self == Player::You)
     }
 }
@@ -67,13 +69,27 @@ impl Player {
 // - Negative => player 2 won
 // - Positive => player 1 won
 // - 0 => draw
-#[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug, Default)]
 pub struct Score(pub i8);
 
 impl Add<i8> for Score {
     type Output = Self;
     fn add(self, rhs: i8) -> Self::Output {
         Score(self.0 + rhs)
+    }
+}
+
+impl Sub<i8> for Score {
+    type Output = Self;
+    fn sub(self, rhs: i8) -> Self::Output {
+        Score(self.0 - rhs)
+    }
+}
+
+impl Neg for Score {
+    type Output = Self;
+    fn neg(self) -> Self::Output {
+        Self(-self.0)
     }
 }
 // }}}

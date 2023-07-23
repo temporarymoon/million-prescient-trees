@@ -8,7 +8,7 @@ use super::types::{BattleResult, Player, TurnResult};
 use crate::game::edict::EdictSet;
 use crate::helpers::bitfield::Bitfield;
 use crate::helpers::pair::Pair;
-use std::debug_assert_eq;
+use std::{debug_assert, debug_assert_eq};
 
 // Context required resolving a battle
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -372,7 +372,7 @@ impl BattleContext {
                     ..self.state
                 };
 
-                let (p1, p2) = &mut new_state.player_states;
+                let [p1, p2] = &mut new_state.player_states;
 
                 // Discard used edicts
                 p1.edicts.remove(self.edict(player));
@@ -443,7 +443,14 @@ impl BattleContext {
                     }
                 }
 
-                TurnResult::Unfinished(new_state)
+                if new_state.guaranteed_win(player) {
+                    debug_assert!(!new_state.guaranteed_win(!player));
+                    TurnResult::Finished(new_state.score(player))
+                } else if new_state.guaranteed_win(!player) {
+                    TurnResult::Finished(new_state.score(player))
+                } else {
+                    TurnResult::Unfinished(new_state)
+                }
             }
 
             // Report final results
@@ -512,7 +519,7 @@ mod tests {
         let p1_choice = FinalMainPhaseChoice::new(Creature::Mercenary, Edict::Gambit);
         let p2_choice = FinalMainPhaseChoice::new(Creature::Seer, Edict::Gambit);
 
-        BattleContext::new((p1_choice, p2_choice), (None, None), *BASIC_STATE)
+        BattleContext::new([p1_choice, p2_choice], [None, None], *BASIC_STATE)
     });
     // }}}
     // {{{ Battlefields
@@ -534,8 +541,7 @@ mod tests {
                 .1
                 .get_unfinished()
                 .unwrap()
-                .player_states
-                .0
+                .player_states[0]
                 .effects
                 .has(effect);
 
@@ -588,8 +594,10 @@ mod tests {
         let effect = StatusEffect::Night;
 
         let unfinished = ctx.advance_known_state().1.get_unfinished().unwrap();
-        let has_effects = unfinished.player_states.0.effects.has(effect)
-            && unfinished.player_states.1.effects.has(effect);
+        let has_effects = unfinished
+            .player_states
+            .iter()
+            .all(|s| s.effects.has(effect));
 
         assert!(has_effects);
     }
@@ -670,8 +678,7 @@ mod tests {
                 .1
                 .get_unfinished()
                 .unwrap()
-                .player_states
-                .0
+                .player_states[0]
                 .effects
                 .has(effect);
 
@@ -691,8 +698,7 @@ mod tests {
             .1
             .get_unfinished()
             .unwrap()
-            .player_states
-            .1
+            .player_states[1]
             .effects
             .has(StatusEffect::Seer);
 
@@ -867,4 +873,4 @@ mod tests {
     }
     // }}}
 }
-// }}}
+// }}

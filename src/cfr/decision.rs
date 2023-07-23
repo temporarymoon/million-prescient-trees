@@ -23,6 +23,7 @@ pub type Probability = f32;
 /// For efficiency, all the values are tightly packed into vectors indexed
 /// by so called "decision indices", which are encoded/decoded differently
 /// depending on the phase of the game we are currently in.
+#[derive(Debug)]
 pub struct DecisionVector<'a> {
     /// Sum of every strategy devised so far during training.
     /// Unintuitively, the current strategy doesn't approach
@@ -123,6 +124,7 @@ impl<'a> DecisionVector<'a> {
 /// (in a certain known game state).
 ///
 /// We don't have to expand this mapping out if the player can make a single decision.
+#[derive(Debug)]
 pub enum DecisionMatrix<'a> {
     Trivial,
     Expanded(&'a mut [DecisionVector<'a>]),
@@ -196,15 +198,19 @@ impl<'a> DecisionMatrices<'a> {
             assert!(are_equal(hidden_counts));
 
             Self::Symmetrical(DecisionMatrix::new(
-                hidden_counts.0,
-                decision_counts.0,
+                hidden_counts[0],
+                decision_counts[0],
                 allocator,
             ))
         } else {
-            let me = DecisionMatrix::new(hidden_counts.0, decision_counts.0, allocator);
-            let you = DecisionMatrix::new(hidden_counts.1, decision_counts.1, allocator);
+            let matrices = hidden_counts
+                .iter()
+                .zip(decision_counts)
+                .map(|(hidden, decision)| DecisionMatrix::new(*hidden, decision, allocator))
+                .next_chunk()
+                .unwrap();
 
-            Self::Asymmetrical((me, you))
+            Self::Asymmetrical(matrices)
         }
     }
 
@@ -217,12 +223,13 @@ impl<'a> DecisionMatrices<'a> {
             assert!(are_equal(decision_counts));
             assert!(are_equal(hidden_counts));
 
-            DecisionMatrix::estimate_alloc(hidden_counts.0, decision_counts.0)
+            DecisionMatrix::estimate_alloc(hidden_counts[0], decision_counts[0])
         } else {
-            let me = DecisionMatrix::estimate_alloc(hidden_counts.0, decision_counts.0);
-            let you = DecisionMatrix::estimate_alloc(hidden_counts.1, decision_counts.1);
-
-            me + you
+            hidden_counts
+                .iter()
+                .zip(decision_counts)
+                .map(|(hidden, decision)| DecisionMatrix::estimate_alloc(*hidden, decision))
+                .sum()
         }
     }
 
@@ -235,20 +242,23 @@ impl<'a> DecisionMatrices<'a> {
             assert!(are_equal(decision_counts));
             assert!(are_equal(hidden_counts));
 
-            DecisionMatrix::estimate_weight_storage(hidden_counts.0, decision_counts.0)
+            DecisionMatrix::estimate_weight_storage(hidden_counts[0], decision_counts[0])
         } else {
-            let me = DecisionMatrix::estimate_weight_storage(hidden_counts.0, decision_counts.0);
-            let you = DecisionMatrix::estimate_weight_storage(hidden_counts.1, decision_counts.1);
-
-            me + you
+            hidden_counts
+                .iter()
+                .zip(decision_counts)
+                .map(|(hidden, decision)| {
+                    DecisionMatrix::estimate_weight_storage(*hidden, decision)
+                })
+                .sum()
         }
     }
 
     /// Compute the number of choices each player has.
-    pub fn decision_count(&self) -> (usize, usize) {
+    pub fn decision_count(&self) -> Pair<usize> {
         match self {
-            Self::Symmetrical(matrix) => (matrix.len(), matrix.len()),
-            Self::Asymmetrical((me, you)) => (me.len(), you.len()),
+            Self::Symmetrical(matrix) => [matrix.len(); 2],
+            Self::Asymmetrical(matrices) => matrices.each_ref().map(|m| m.len()),
         }
     }
 }

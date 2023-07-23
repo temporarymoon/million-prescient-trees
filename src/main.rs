@@ -5,6 +5,12 @@
 #![feature(const_option)]
 #![feature(const_fmt_arguments_new)]
 #![feature(const_trait_impl)]
+#![feature(iterator_try_collect)]
+#![feature(iter_array_chunks)]
+#![feature(iter_next_chunk)]
+#![feature(array_try_map)]
+#![feature(array_zip)]
+#![feature(array_methods)]
 #![allow(dead_code)]
 
 use bumpalo::Bump;
@@ -52,11 +58,11 @@ fn simple_generation(from: usize, turns: usize, generate: bool) {
 
     let start = Instant::now();
     let mut state = KnownState::new_starting([Battlefield::Plains; 4]);
+    state.battlefields.all[3 - from] = Battlefield::LastStrand;
 
     for i in 0..from {
         state.graveyard.add(Creature::CREATURES[2 * i]);
         state.graveyard.add(Creature::CREATURES[2 * i + 1]);
-        state.battlefields.current += 1;
     }
 
     let mut generator = GenerationContext::new(turns, state, &allocator);
@@ -66,21 +72,17 @@ fn simple_generation(from: usize, turns: usize, generate: bool) {
     println!("State init: {:?}", state_init_duration);
 
     let start = Instant::now();
-    let stats_estimated = estimator.estimate_alloc();
+    let stats = estimator.estimate_alloc();
     let estimation_duration = start.elapsed();
 
     println!("Estimation: {:?}", estimation_duration);
 
-    let stats = if generate {
+    if generate {
         let start = Instant::now();
-        let (_, stats) = generator.generate();
+        generator.generate();
         let generation_duration = start.elapsed();
 
         println!("Generation: {:?}", generation_duration);
-
-        stats
-    } else {
-        stats_estimated
     };
 
     println!("\nAllocation stats:");
@@ -89,10 +91,7 @@ fn simple_generation(from: usize, turns: usize, generate: bool) {
         "Remaining capacity: {:?}MB",
         b_to_mb(allocator.chunk_capacity())
     );
-    println!(
-        "Estimated: {:?}GB",
-        b_to_gb(stats_estimated.estimate_alloc())
-    );
+    println!("Estimated: {:?}GB", b_to_gb(stats.estimate_alloc()));
     println!(
         "Required space for weight storage per battlefield config {}GB",
         b_to_gb(stats.estimate_weight_storage_per_battlefield())
@@ -211,5 +210,5 @@ fn main() {
     // let duration = start.elapsed();
     // println!("Computed {} numbers in {:?}", total, duration);
 
-    simple_generation(1, 3, false);
+    simple_generation(0, 2, false);
 }
