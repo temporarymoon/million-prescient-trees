@@ -378,6 +378,10 @@ impl BattleContext {
                 p1.edicts.remove(self.edict(player));
                 p2.edicts.remove(self.edict(!player));
 
+                // Discard creatures
+                new_state.graveyard.add(self.creature(player));
+                new_state.graveyard.add(self.creature(!player));
+
                 // Clear status effects
                 p1.effects.clear();
                 p2.effects.clear();
