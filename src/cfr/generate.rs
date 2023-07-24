@@ -15,31 +15,25 @@ use derive_more::{Add, AddAssign};
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use std::iter::Sum;
 use std::mem::size_of;
+use std::ops::Index;
 
 // {{{ Stats
+#[derive(Default, Copy, Clone, Add, AddAssign)]
+pub struct PhaseStats {
+    pub count: usize,
+    pub total_decisions: usize,
+    pub total_hidden: usize,
+    pub total_next: usize,
+    pub total_weights: usize,
+    pub memory_estimate: usize,
+}
+
 #[derive(Default, Copy, Clone, Add, AddAssign)]
 pub struct GenerationStats {
     pub explored_scopes: usize,
     pub unexplored_scopes: usize,
     pub completed_scopes: usize,
-
-    pub main_count: usize,
-    pub sabotage_count: usize,
-    pub seer_count: usize,
-
-    pub main_total_decisions: usize,
-    pub main_total_hidden: usize,
-    pub main_total_next: usize,
-    pub main_total_weights: usize,
-    pub sabotage_total_decisions: usize,
-    pub sabotage_total_hidden: usize,
-    pub sabotage_total_next: usize,
-    pub sabotage_total_weights: usize,
-    pub seer_total_decisions: usize,
-    pub seer_total_hidden: usize,
-    pub seer_total_next: usize,
-    pub seer_total_weights: usize,
-    pub memory_estimate: usize,
+    pub phase_stats: [PhaseStats; 3],
 }
 
 impl GenerationStats {
@@ -112,34 +106,56 @@ impl Sum for GenerationStats {
         result
     }
 }
+
+impl Index<PhaseTag> for GenerationStats {
+    type Output = PhaseStats;
+    fn index(&self, index: PhaseTag) -> &Self::Output {
+        &self.phase_stats[index as usize]
+    }
+}
 // }}}
-// {{{ Trait based approach
+// {{{ Phase tags
+enum PhaseTag {
+    Main,
+    Sabotage,
+    Seer,
+}
+// }}}
+// {{{ The Phase trait
 trait Phase {
     type Next: Phase;
 
-    const ADVANCES_TURN: bool;
+    const TAG: PhaseTag;
+    const ADVANCES_TURN: bool = false;
 
-    fn is_symmetrical(&self, state: &KnownState) -> bool;
+    fn is_symmetrical(&self) -> bool;
     fn advance_state(
         &self,
         state: &KnownState,
         reveal_index: RevealIndex,
-    ) -> Option<(Self::Next, KnownState)>;
+    ) -> TurnResult<(Self::Next, KnownState)>;
 
     fn decision_counts(&self, state: &KnownState) -> Pair<usize>;
     fn hidden_counts(&self, state: &KnownState) -> Pair<usize>;
     fn reveal_count(&self, state: &KnownState) -> usize;
 }
 // }}}
-// {{{ Instances
+// {{{ Phase instances
 // {{{ Main phase
-struct MainPhase {}
+struct MainPhase;
+
+impl MainPhase {
+    fn new() -> Self {
+        Self {}
+    }
+}
 
 impl Phase for MainPhase {
     type Next = SabotagePhase;
-    const ADVANCES_TURN: bool = false;
 
-    fn is_symmetrical(&self, state: &KnownState) -> bool {
+    const TAG: PhaseTag = PhaseTag::Main;
+
+    fn is_symmetrical(&self) -> bool {
         true
     }
 
@@ -170,12 +186,12 @@ impl Phase for MainPhase {
         &self,
         state: &KnownState,
         reveal_index: RevealIndex,
-    ) -> Option<(Self::Next, KnownState)> {
+    ) -> TurnResult<(Self::Next, KnownState)> {
         let edict_choices = reveal_index
             .decode_main_phase_reveal(state.edict_sets())
             .unwrap();
 
-        Some((SabotagePhase::new(edict_choices), *state))
+        TurnResult::Unfinished((SabotagePhase::new(edict_choices), *state))
     }
 }
 // }}}
@@ -188,12 +204,157 @@ impl SabotagePhase {
     fn new(edict_choices: Pair<Edict>) -> Self {
         Self { edict_choices }
     }
+
+    fn sabotage_vector_size(did_sabotage: bool, guess_count: usize) -> usize {
+        if did_sabotage {
+            guess_count
+        } else {
+            1
+        }
+    }
+
+    fn sabotage_statuses(&self) -> Pair<bool> {
+        self.edict_choices.map(|edict| edict == Edict::Sabotage)
+    }
 }
 
-impl Phase for SabotagePhase {}
+impl Phase for SabotagePhase {
+    type Next = SeerPhase;
+
+    const TAG: PhaseTag = PhaseTag::Sabotage;
+
+    fn is_symmetrical(&self) -> bool {
+        are_equal(self.edict_choices)
+    }
+
+    fn decision_counts(&self, state: &KnownState) -> Pair<usize> {
+        let guess_count =
+            DecisionIndex::sabotage_phase_index_count_old_hand(state.hand_size(), state.graveyard);
+
+        self.sabotage_statuses()
+            .map(|status| Self::sabotage_vector_size(status, guess_count))
+    }
+
+    fn hidden_counts(&self, state: &KnownState) -> Pair<usize> {
+        state.seer_statuses().map(|status| {
+            HiddenIndex::sabotage_seer_index_count_old_hand(
+                state.hand_size(),
+                state.graveyard,
+                status,
+            )
+        })
+    }
+
+    fn reveal_count(&self, state: &KnownState) -> usize {
+        RevealIndex::sabotage_phase_count(
+            self.sabotage_statuses(),
+            state.forced_seer_player(),
+            state.graveyard,
+        )
+    }
+
+    fn advance_state(
+        &self,
+        state: &KnownState,
+        reveal_index: RevealIndex,
+    ) -> TurnResult<(Self::Next, KnownState)> {
+        let (sabotage_choices, revealed_creature) = reveal_index
+            .decode_sabotage_phase_reveal(
+                self.sabotage_statuses(),
+                state.forced_seer_player(),
+                state.graveyard,
+            )
+            .unwrap();
+
+        let mut new_state = *state;
+        new_state.graveyard.add(revealed_creature);
+
+        TurnResult::Unfinished((
+            SeerPhase::new(self.edict_choices, sabotage_choices, revealed_creature),
+            new_state,
+        ))
+    }
+}
 // }}}
 // {{{ Seer phase
-struct SeerPhase {}
+struct SeerPhase {
+    pub edict_choices: Pair<Edict>,
+    pub sabotage_choices: Pair<SabotagePhaseChoice>,
+    pub revealed_creature: Creature,
+}
+
+impl SeerPhase {
+    fn new(
+        edict_choices: Pair<Edict>,
+        sabotage_choices: Pair<SabotagePhaseChoice>,
+        revealed_creature: Creature,
+    ) -> Self {
+        Self {
+            edict_choices,
+            sabotage_choices,
+            revealed_creature,
+        }
+    }
+}
+
+impl Phase for SeerPhase {
+    type Next = MainPhase;
+
+    const ADVANCES_TURN: bool = true;
+    const TAG: PhaseTag = PhaseTag::Seer;
+
+    fn is_symmetrical(&self) -> bool {
+        false
+    }
+
+    fn decision_counts(&self, state: &KnownState) -> Pair<usize> {
+        let seer_player_decisions = if state.seer_is_active() { 2 } else { 1 };
+        state
+            .forced_seer_player()
+            .order_as([seer_player_decisions, 1])
+    }
+
+    fn hidden_counts(&self, state: &KnownState) -> Pair<usize> {
+        state.seer_statuses().map(|status| {
+            HiddenIndex::sabotage_seer_index_count_old_hand(
+                state.hand_size(),
+                state.graveyard,
+                status,
+            )
+        })
+    }
+
+    fn reveal_count(&self, state: &KnownState) -> usize {
+        RevealIndex::seer_phase_count(state.graveyard)
+    }
+
+    fn advance_state(
+        &self,
+        state: &KnownState,
+        reveal_index: RevealIndex,
+    ) -> TurnResult<(Self::Next, KnownState)> {
+        let seer_player_creature = reveal_index
+            .decode_seer_phase_reveal(state.graveyard)
+            .unwrap();
+
+        let main_choices = state
+            .forced_seer_player()
+            .order_as([seer_player_creature, self.revealed_creature])
+            .zip(self.edict_choices)
+            .map(|(creatures, edict)| FinalMainPhaseChoice::new(creatures, edict));
+
+        let context = BattleContext {
+            main_choices,
+            sabotage_choices: self.sabotage_choices,
+            state: *state,
+        };
+
+        match context.advance_known_state().1 {
+            TurnResult::Finished(score) => TurnResult::Finished(score),
+            TurnResult::Unfinished(state) => TurnResult::Unfinished((MainPhase::new(), state)),
+        }
+    }
+}
 // }}}
 // }}}
 // {{{ Generate
@@ -205,6 +366,14 @@ pub struct GenerationContext<'a> {
 }
 
 impl<'a> GenerationContext<'a> {
+    pub fn new(turns: usize, state: KnownState, allocator: &'a Bump) -> Self {
+        Self {
+            turns,
+            state,
+            allocator,
+        }
+    }
+
     // {{{ Generic generation
     fn generate_generic<P: Phase>(&self, phase: P) -> Scope<'a> {
         if self.turns == 0 {
@@ -214,7 +383,7 @@ impl<'a> GenerationContext<'a> {
         let vector_sizes = phase.decision_counts(&self.state);
         let hidden_counts = phase.hidden_counts(&self.state);
         let matrices = DecisionMatrices::new(
-            self.state.is_symmetrical() && phase.is_symmetrical(&self.state),
+            self.state.is_symmetrical() && phase.is_symmetrical(),
             hidden_counts,
             vector_sizes,
             self.allocator,
@@ -223,186 +392,178 @@ impl<'a> GenerationContext<'a> {
         let next = self
             .allocator
             .alloc_slice_fill_with(phase.reveal_count(&self.state), |index| {
-                let (next, new_state) = phase
-                    .advance_state(&self.state, RevealIndex(index))
-                    .unwrap();
+                let advanced = phase.advance_state(&self.state, RevealIndex(index));
 
-                let new_self = &Self::new(
-                    self.turns - P::ADVANCES_TURN as usize,
-                    new_state,
-                    self.allocator,
-                );
-
-                new_self.generate_generic::<P::Next>(next)
+                match advanced {
+                    TurnResult::Finished(score) => Scope::Completed(score),
+                    TurnResult::Unfinished((next, new_state)) => Self::new(
+                        self.turns - P::ADVANCES_TURN as usize,
+                        new_state,
+                        self.allocator,
+                    )
+                    .generate_generic::<P::Next>(next),
+                }
             });
 
         Scope::Explored(ExploredScope { matrices, next })
     }
     // }}}
-    // {{{ Helpers
-    pub fn new(turns: usize, state: KnownState, allocator: &'a Bump) -> Self {
-        Self {
-            turns,
-            state,
-            allocator,
-        }
-    }
-
-    fn next_turn(&self, state: KnownState) -> Self {
-        Self {
-            turns: self.turns - 1,
-            state,
-            ..*self
-        }
-    }
-
-    pub fn generate(&mut self) -> Scope<'a> {
-        self.generate_turn()
-    }
-
-    fn generate_turn(&mut self) -> Scope<'a> {
-        if self.turns == 0 {
-            // let state = self.allocator.alloc(self.state);
-            return Scope::Unexplored(UnexploredScope { state: None });
-        }
-
-        self.generate_main()
-    }
-    // }}}
-    // {{{ Main phase
-    fn generate_main(&mut self) -> Scope<'a> {
-        let edicts = self.state.player_states.map(|s| s.edicts);
-
-        let hand_size = self.state.hand_size();
-        let seer_statuses = self.state.seer_statuses();
-
-        let vector_sizes = edicts.zip(seer_statuses).map(|(edicts, seer_status)| {
-            DecisionIndex::main_phase_index_count(edicts.len(), hand_size, seer_status)
-        });
-
-        let hidden_count = HiddenIndex::main_index_count(hand_size, self.state.graveyard);
-        let matrices = DecisionMatrices::new(
-            self.state.is_symmetrical(),
-            [hidden_count; 2],
-            vector_sizes,
-            self.allocator,
-        );
-
-        let next =
-            self.allocator
-                .alloc_slice_fill_with(RevealIndex::main_phase_count(edicts), |index| {
-                    let choice = RevealIndex(index).decode_main_phase_reveal(edicts).unwrap();
-                    self.generate_sabotage(choice)
-                });
-
-        Scope::Explored(ExploredScope { matrices, next })
-    }
-    // }}}
-    // {{{ Sabotage phase
-    fn sabotage_vector_size(did_sabotage: bool, guess_count: usize) -> usize {
-        if did_sabotage {
-            guess_count
-        } else {
-            1
-        }
-    }
-
-    fn generate_sabotage(&mut self, edict_choices: Pair<Edict>) -> Scope<'a> {
-        let hand_size = self.state.hand_size();
-        let seer_statuses = self.state.seer_statuses();
-        let seer_player = self.state.forced_seer_player();
-        let sabotage_statuses = edict_choices.map(|c| c == Edict::Sabotage);
-
-        let guess_count =
-            DecisionIndex::sabotage_phase_index_count_old_hand(hand_size, self.state.graveyard);
-
-        let vector_sizes =
-            sabotage_statuses.map(|status| Self::sabotage_vector_size(status, guess_count));
-
-        let hidden_counts = seer_statuses.map(|status| {
-            HiddenIndex::sabotage_seer_index_count_old_hand(hand_size, self.state.graveyard, status)
-        });
-
-        let matrices = DecisionMatrices::new(
-            self.state.is_symmetrical() && are_equal(edict_choices),
-            hidden_counts,
-            vector_sizes,
-            self.allocator,
-        );
-
-        let next = self.allocator.alloc_slice_fill_with(
-            RevealIndex::sabotage_phase_count(sabotage_statuses, seer_player, self.state.graveyard),
-            |index| {
-                let (sabotage_choices, revealed_creature) = RevealIndex(index)
-                    .decode_sabotage_phase_reveal(
-                        sabotage_statuses,
-                        seer_player,
-                        self.state.graveyard,
-                    )
-                    .unwrap();
-                self.generate_seer(edict_choices, revealed_creature, sabotage_choices)
-            },
-        );
-
-        Scope::Explored(ExploredScope { matrices, next })
-    }
-    // }}}
-    // {{{ Seer phase
-    fn generate_seer(
-        &mut self,
-        edict_choices: Pair<Edict>,
-        non_seer_player_creature: Creature,
-        sabotage_choices: Pair<SabotagePhaseChoice>,
-    ) -> Scope<'a> {
-        let hand_size = self.state.hand_size();
-        let seer_active = self.state.seer_is_active();
-        let seer_statuses = self.state.seer_statuses();
-        let seer_player = self.state.forced_seer_player();
-
-        let mut graveyard = self.state.graveyard.clone();
-        graveyard.add(non_seer_player_creature);
-
-        let vector_sizes = seer_player.order_as([if seer_active { 2 } else { 1 }, 1]);
-
-        let hidden_counts = seer_statuses.map(|status| {
-            HiddenIndex::sabotage_seer_index_count_old_hand(hand_size, graveyard, status)
-        });
-
-        let matrices = DecisionMatrices::new(
-            self.state.is_symmetrical() && are_equal(sabotage_choices) && are_equal(edict_choices),
-            hidden_counts,
-            vector_sizes,
-            self.allocator,
-        );
-
-        let next = self.allocator.alloc_slice_fill_with(
-            RevealIndex::seer_phase_count(graveyard),
-            |index| {
-                let seer_player_creature = RevealIndex(index)
-                    .decode_seer_phase_reveal(graveyard)
-                    .unwrap();
-
-                let creature_choices =
-                    seer_player.order_as([seer_player_creature, non_seer_player_creature]);
-
-                let context = BattleContext {
-                    main_choices: creature_choices
-                        .zip(edict_choices)
-                        .map(|(creatures, edict)| FinalMainPhaseChoice::new(creatures, edict)),
-                    sabotage_choices,
-                    state: self.state,
-                };
-
-                match context.advance_known_state().1 {
-                    TurnResult::Finished(score) => Scope::Completed(score),
-                    TurnResult::Unfinished(state) => self.next_turn(state).generate_turn(),
-                }
-            },
-        );
-
-        Scope::Explored(ExploredScope { matrices, next })
-    }
-    // }}}
+    // // {{{ Helpers
+    // fn next_turn(&self, state: KnownState) -> Self {
+    //     Self {
+    //         turns: self.turns - 1,
+    //         state,
+    //         ..*self
+    //     }
+    // }
+    //
+    // pub fn generate(&mut self) -> Scope<'a> {
+    //     self.generate_turn()
+    // }
+    //
+    // fn generate_turn(&mut self) -> Scope<'a> {
+    //     if self.turns == 0 {
+    //         // let state = self.allocator.alloc(self.state);
+    //         return Scope::Unexplored(UnexploredScope { state: None });
+    //     }
+    //
+    //     self.generate_main()
+    // }
+    // // }}}
+    // // {{{ Main phase
+    // fn generate_main(&mut self) -> Scope<'a> {
+    //     let edicts = self.state.player_states.map(|s| s.edicts);
+    //
+    //     let hand_size = self.state.hand_size();
+    //     let seer_statuses = self.state.seer_statuses();
+    //
+    //     let vector_sizes = edicts.zip(seer_statuses).map(|(edicts, seer_status)| {
+    //         DecisionIndex::main_phase_index_count(edicts.len(), hand_size, seer_status)
+    //     });
+    //
+    //     let hidden_count = HiddenIndex::main_index_count(hand_size, self.state.graveyard);
+    //     let matrices = DecisionMatrices::new(
+    //         self.state.is_symmetrical(),
+    //         [hidden_count; 2],
+    //         vector_sizes,
+    //         self.allocator,
+    //     );
+    //
+    //     let next =
+    //         self.allocator
+    //             .alloc_slice_fill_with(RevealIndex::main_phase_count(edicts), |index| {
+    //                 let choice = RevealIndex(index).decode_main_phase_reveal(edicts).unwrap();
+    //                 self.generate_sabotage(choice)
+    //             });
+    //
+    //     Scope::Explored(ExploredScope { matrices, next })
+    // }
+    // // }}}
+    // // {{{ Sabotage phase
+    // fn sabotage_vector_size(did_sabotage: bool, guess_count: usize) -> usize {
+    //     if did_sabotage {
+    //         guess_count
+    //     } else {
+    //         1
+    //     }
+    // }
+    //
+    // fn generate_sabotage(&mut self, edict_choices: Pair<Edict>) -> Scope<'a> {
+    //     let hand_size = self.state.hand_size();
+    //     let seer_statuses = self.state.seer_statuses();
+    //     let seer_player = self.state.forced_seer_player();
+    //     let sabotage_statuses = edict_choices.map(|c| c == Edict::Sabotage);
+    //
+    //     let guess_count =
+    //         DecisionIndex::sabotage_phase_index_count_old_hand(hand_size, self.state.graveyard);
+    //
+    //     let vector_sizes =
+    //         sabotage_statuses.map(|status| Self::sabotage_vector_size(status, guess_count));
+    //
+    //     let hidden_counts = seer_statuses.map(|status| {
+    //         HiddenIndex::sabotage_seer_index_count_old_hand(hand_size, self.state.graveyard, status)
+    //     });
+    //
+    //     let matrices = DecisionMatrices::new(
+    //         self.state.is_symmetrical() && are_equal(edict_choices),
+    //         hidden_counts,
+    //         vector_sizes,
+    //         self.allocator,
+    //     );
+    //
+    //     let next = self.allocator.alloc_slice_fill_with(
+    //         RevealIndex::sabotage_phase_count(sabotage_statuses, seer_player, self.state.graveyard),
+    //         |index| {
+    //             let (sabotage_choices, revealed_creature) = RevealIndex(index)
+    //                 .decode_sabotage_phase_reveal(
+    //                     sabotage_statuses,
+    //                     seer_player,
+    //                     self.state.graveyard,
+    //                 )
+    //                 .unwrap();
+    //             self.generate_seer(edict_choices, revealed_creature, sabotage_choices)
+    //         },
+    //     );
+    //
+    //     Scope::Explored(ExploredScope { matrices, next })
+    // }
+    // // }}}
+    // // {{{ Seer phase
+    // fn generate_seer(
+    //     &mut self,
+    //     edict_choices: Pair<Edict>,
+    //     non_seer_player_creature: Creature,
+    //     sabotage_choices: Pair<SabotagePhaseChoice>,
+    // ) -> Scope<'a> {
+    //     let hand_size = self.state.hand_size();
+    //     let seer_active = self.state.seer_is_active();
+    //     let seer_statuses = self.state.seer_statuses();
+    //     let seer_player = self.state.forced_seer_player();
+    //
+    //     let mut graveyard = self.state.graveyard.clone();
+    //     graveyard.add(non_seer_player_creature);
+    //
+    //     let vector_sizes = seer_player.order_as([if seer_active { 2 } else { 1 }, 1]);
+    //
+    //     let hidden_counts = seer_statuses.map(|status| {
+    //         HiddenIndex::sabotage_seer_index_count_old_hand(hand_size, graveyard, status)
+    //     });
+    //
+    //     let matrices = DecisionMatrices::new(
+    //         self.state.is_symmetrical() && are_equal(sabotage_choices) && are_equal(edict_choices),
+    //         hidden_counts,
+    //         vector_sizes,
+    //         self.allocator,
+    //     );
+    //
+    //     let next = self.allocator.alloc_slice_fill_with(
+    //         RevealIndex::seer_phase_count(graveyard),
+    //         |index| {
+    //             let seer_player_creature = RevealIndex(index)
+    //                 .decode_seer_phase_reveal(graveyard)
+    //                 .unwrap();
+    //
+    //             let creature_choices =
+    //                 seer_player.order_as([seer_player_creature, non_seer_player_creature]);
+    //
+    //             let context = BattleContext {
+    //                 main_choices: creature_choices
+    //                     .zip(edict_choices)
+    //                     .map(|(creatures, edict)| FinalMainPhaseChoice::new(creatures, edict)),
+    //                 sabotage_choices,
+    //                 state: self.state,
+    //             };
+    //
+    //             match context.advance_known_state().1 {
+    //                 TurnResult::Finished(score) => Scope::Completed(score),
+    //                 TurnResult::Unfinished(state) => self.next_turn(state).generate_turn(),
+    //             }
+    //         },
+    //     );
+    //
+    //     Scope::Explored(ExploredScope { matrices, next })
+    // }
+    // // }}}
 }
 // }}}
 // {{{ Estimate
