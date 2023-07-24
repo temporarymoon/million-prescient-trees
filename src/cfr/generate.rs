@@ -7,7 +7,7 @@ use crate::game::creature::{Creature, CreatureSet};
 use crate::game::edict::Edict;
 use crate::game::known_state::KnownState;
 use crate::game::simulate::BattleContext;
-use crate::game::types::TurnResult;
+use crate::game::types::{Player, TurnResult};
 use crate::helpers::bitfield::Bitfield;
 use crate::helpers::pair::{are_equal, Pair};
 use bumpalo::Bump;
@@ -205,6 +205,11 @@ impl Phase for MainPhase {
         state: &KnownState,
         reveal_index: RevealIndex,
     ) -> TurnResult<(Self::Next, KnownState)> {
+        // Sanity check
+        for player in Player::PLAYERS {
+            debug_assert!(state.edicts(player).len() >= 5 - state.battlefields.current);
+        }
+
         let edict_choices = reveal_index
             .decode_main_phase_reveal(state.edict_sets())
             .unwrap();
