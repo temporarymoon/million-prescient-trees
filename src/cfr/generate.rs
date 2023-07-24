@@ -477,7 +477,7 @@ impl EstimationContext {
         let is_symmetrical = self.state.is_symmetrical() && phase.is_symmetrical();
         let vector_sizes = phase.decision_counts(&self.state);
         let hidden_counts = phase.hidden_counts(&self.state);
-        let reveal_count = phase.reveal_count(&self.state);
+        let reveal_count = phase.reveal_count(&self.state) / if is_symmetrical { 2 } else { 1 };
 
         let (slice_memory_estimate, mut stats) =
             Self::estimate_slice_alloc(reveal_count, |index| {
