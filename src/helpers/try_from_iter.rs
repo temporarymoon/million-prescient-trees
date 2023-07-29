@@ -1,8 +1,14 @@
 use std::mem::MaybeUninit;
 
 // {{{ TryFromIterator trait
+/// Trait for types which can be collected into for certain iterators only.
 pub trait TryFromIterator<A>: Sized {
+    /// Attempt to collect an iterator into a given structure.
+    /// Returns `None` when a `None` element is encountered or when
+    /// the iterator cannot be converted into the given structure.
     fn try_from_opt_iter<T: IntoIterator<Item = Option<A>>>(iter: T) -> Option<Self>;
+
+    /// Attempt to collect an iterator into a given structure.
     fn try_from_iter<T: IntoIterator<Item = A>>(iter: T) -> Option<Self> {
         TryFromIterator::try_from_opt_iter(iter.into_iter().map(Some))
     }
@@ -33,10 +39,12 @@ impl<A, const N: usize> TryFromIterator<A> for [A; N] {
 // }}}
 // {{{ Traits for iter methods
 pub trait TryOptCollect<A>: Sized + IntoIterator<Item = Option<A>> {
+    /// Like `try_collect`, but can fail even when only given `Some` values.
     fn attempt_opt_collect<I: TryFromIterator<A>>(self) -> Option<I>;
 }
 
 pub trait TryCollect: Sized + IntoIterator {
+    /// Like `collect`, but can fail.
     fn attempt_collect<I: TryFromIterator<Self::Item>>(self) -> Option<I>;
 }
 
