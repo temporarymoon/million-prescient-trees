@@ -24,6 +24,7 @@ pub trait Itercools: Iterator + Sized {
     }
 
     /// Similar to `dependent_cartesian_product`, except it returns a `Pair` instead of a tuple
+    #[inline(always)]
     fn dependent_cartesian_pair_product<J, F>(
         self,
         make_other: F,
@@ -38,6 +39,7 @@ pub trait Itercools: Iterator + Sized {
     }
 
     /// Similar to `cartesian_product`, except it returns a `Pair` instead of a tuple.
+    #[inline(always)]
     fn cartesian_pair_product<J>(self, other: J) -> impl Iterator<Item = Pair<Self::Item>>
     where
         J: IntoIterator<Item = Self::Item>,

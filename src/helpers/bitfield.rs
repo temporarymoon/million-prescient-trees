@@ -2,6 +2,8 @@ use std::{fmt::Binary, convert::{TryFrom, TryInto}};
 
 use self::const_size_codec::ConstSizeCodec;
 
+use super::choose::choose;
+
 // {{{ Trait definition
 pub trait Bitfield: Sized + Copy + Binary + Into<Self::Representation> {
     type Element: TryFrom<usize> + Copy;
@@ -472,7 +474,7 @@ impl<B: Bitfield> BitfieldSubsetIterator<B> {
     pub fn new(possibilities: B, ones: usize) -> Self {
         Self {
             index: 0,
-            index_end: const_size_codec::count_with_n_ones(possibilities.len()) - 1,
+            index_end: choose(possibilities.len(), ones) - 1,
             ones,
             possibilities,
         }
