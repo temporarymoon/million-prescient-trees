@@ -5,7 +5,7 @@ use crate::{
         edict::{Edict, EdictSet},
     },
     helpers::{
-        bitfield::{Bitfield, Bitfield16},
+        bitfield::{Bitfield, Bitfield16, const_size_codec::ConstSizeCodec},
         choose::choose,
         ranged::MixRanged,
     },

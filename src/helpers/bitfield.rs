@@ -1,7 +1,12 @@
+use std::{fmt::Binary, convert::{TryFrom, TryInto}};
+
+use self::const_size_codec::ConstSizeCodec;
+
 // {{{ Trait definition
-pub trait Bitfield: Sized + Copy + Into<Self::Representation> {
-    type Element: From<usize> + Copy;
-    type Representation;
+pub trait Bitfield: Sized + Copy + Binary + Into<Self::Representation> {
+    type Element: TryFrom<usize> + Copy;
+    type IndexBitfield: Bitfield<Element = usize>;
+    type Representation: Into<usize> + TryFrom<usize>;
 
     /// The maximum valid value this bitfield can take.
     const MAX: Self::Representation;
@@ -112,11 +117,66 @@ pub trait Bitfield: Sized + Copy + Into<Self::Representation> {
     /// index(0b010101, 2) // Some(4)
     /// index(0b010101, 3) // Some(4)
     /// ```
-    fn index(self, index: usize) -> Option<Self::Element> {
+    fn index_raw(self, index: usize) -> Option<usize> {
         (0..Self::BITS)
             .filter(|x| self.has_raw(*x))
             .nth(index)
-            .map(|i| Self::Element::from(i))
+    }
+
+    /// Returns the position (starting from the end) of the nth bit.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// index(0b010101, 2) // Some(4)
+    /// index(0b010101, 3) // Some(4)
+    /// ```
+    fn index(self, index: usize) -> Option<Self::Element> {
+        self.index_raw(index).and_then(|i| i.try_into().ok())
+    }
+    
+    /// Encode a bitfield as a subset of another bitfield.
+    /// Bits are shifted to the left such that all zero bits in the super-bitfield
+    /// are not present in the sub-bitfield.
+    ///
+    /// Properties:
+    /// - the empty bitfield acts as a left zero elements
+    /// - the full bitfield acts as a right identity
+    fn encode_relative_to(self, other: Self) -> Self::IndexBitfield {
+        let mut result = Self::IndexBitfield::empty();
+
+        for i in 0..Self::BITS {
+            if self.has_raw(i) {
+                assert!(
+                    other.has_raw(i),
+                    "{:b} contains bits not contained in {:b}",
+                    self,
+                    other
+                );
+
+                result.add(other.indexof_raw(i))
+            }
+        }
+
+        result
+    }
+
+    /// Inverse of `encode_relative_to`.
+    fn decode_relative_to(encoded: Self::IndexBitfield, other: Self) -> Option<Self> {
+        let mut result = Self::empty();
+
+        for i in 0..Self::BITS {
+            if encoded.has_raw(i) {
+                result.add_raw(other.index_raw(i as usize)?);
+            }
+        }
+
+        Some(result)
+    }
+
+    /// Returns an iterator over the subsets of a given size.
+    fn subsets_of_size(self, ones: usize) -> BitfieldSubsetIterator<Self> {
+        BitfieldSubsetIterator::new(self, ones) 
     }
 }
 // }}}
@@ -144,6 +204,7 @@ macro_rules! make_bitfield {
         impl crate::helpers::bitfield::Bitfield for $name {
             type Element = $element;
             type Representation = $repr;
+            type IndexBitfield = $index_bitfield;
 
             const MAX: $repr = if $bits == <$repr>::BITS {
                 <$repr>::MAX
@@ -212,10 +273,12 @@ macro_rules! make_bitfield {
                 self.0 ^= 1 << (index as $repr)
             }
 
+            #[inline(always)]
             fn len(self) -> usize {
                 self.0.count_ones() as usize
             }
 
+            #[inline(always)]
             fn indexof(self, target: $element) -> usize {
                 self.indexof_raw(target as usize)
             }
@@ -225,52 +288,16 @@ macro_rules! make_bitfield {
             }
         }
         // }}}
-        // {{{ Relative encoding
-        impl $name {
-            /// Encode a bitfield as a subset of another bitfield.
-            /// Bits are shifted to the left such that all zero bits in the super-bitfield
-            /// are not present in the sub-bitfield.
-            ///
-            /// Properties:
-            /// - the empty bitfield acts as a left zero elements
-            /// - the full bitfield acts as a right identity
-            pub fn encode_relative_to(self, other: Self) -> $index_bitfield {
-                let mut result = <$index_bitfield>::empty();
-
-                for i in 0..$bits {
-                    if self.has_raw(i) {
-                        assert!(
-                            other.has_raw(i),
-                            "{:?} contains bits not contained in {:?}",
-                            self,
-                            other
-                        );
-
-                        result.add(other.indexof_raw(i))
-                    }
-                }
-
-                result
-            }
-
-            /// Inverse of `encode_relative_to`.
-            pub fn decode_relative_to(encoded: $index_bitfield, other: Self) -> Option<Self> {
-                let mut result = Self::empty();
-
-                for i in 0..$bits {
-                    if encoded.has_raw(i) {
-                        result.add_raw(other.index(i as usize)? as usize);
-                    }
-                }
-
-                Some(result)
-            }
-        }
-        // }}}
         // {{{ Trait implementations
-        impl std::fmt::Debug for $name {
+        impl std::fmt::Binary for $name {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 write!(f, "{:b}", self.0)
+            }
+        }
+
+        impl std::fmt::Debug for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.debug_list().entries(self.into_iter()).finish()
             }
         }
 
@@ -358,60 +385,13 @@ macro_rules! make_bitfield {
                 self.0 &= !rhs.0;
             }
         }
-        // }}}
-        // {{{ Iterator
-        paste::paste! {
-            pub struct [<$name Iterator>] {
-                index: usize,
-                index_end: usize,
-                bitfield: $name,
-            }
 
-            impl Iterator for [<$name Iterator>] {
-                type Item = $element;
+        impl IntoIterator for $name {
+            type Item = $element;
+            type IntoIter = crate::helpers::bitfield::BitfieldIterator<$name>;
 
-                fn next(&mut self) -> Option<Self::Item> {
-                    while self.index <= self.index_end {
-                        if self.bitfield.has_raw(self.index) {
-                            let result = <$element>::from(self.index);
-                            self.index += 1;
-                            return Some(result);
-                        } else {
-                            self.index += 1;
-                        }
-                    }
-
-                    None
-                }
-            }
-
-            impl DoubleEndedIterator for [<$name Iterator>] {
-                fn next_back(&mut self) -> Option<Self::Item> {
-                    while self.index <= self.index_end {
-                        if self.bitfield.has_raw(self.index_end) {
-                            let result = <$element>::from(self.index_end);
-                            self.index_end -= 1;
-                            return Some(result);
-                        } else {
-                            self.index_end -= 1;
-                        }
-                    }
-
-                    None
-                }
-            }
-
-            impl IntoIterator for $name {
-                type Item = $element;
-                type IntoIter = [<$name Iterator>];
-
-                fn into_iter(self) -> Self::IntoIter {
-                    [<$name Iterator>] {
-                        index: 0,
-                        index_end: 15,
-                        bitfield: self,
-                    }
-                }
+            fn into_iter(self) -> Self::IntoIter {
+                crate::helpers::bitfield::BitfieldIterator::new(self)
             }
         }
         // }}}
@@ -427,6 +407,102 @@ macro_rules! make_bitfield {
         }
         // }}}
     };
+}
+// }}}
+// {{{ Iterator
+#[derive(Debug, Clone, Copy)]
+pub struct BitfieldIterator<B> {
+    index: usize,
+    index_end: usize,
+    bitfield: B,
+}
+
+impl<B: Bitfield> BitfieldIterator<B> {
+    #[inline(always)]
+    pub fn new(bitfield: B) -> Self {
+        Self { index: 0, index_end: B::BITS - 1, bitfield }
+    }
+}
+
+impl<B: Bitfield> Iterator for BitfieldIterator<B> {
+    type Item = B::Element;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.index <= self.index_end {
+            if self.bitfield.has_raw(self.index) {
+                let result = B::Element::try_from(self.index).ok();
+                self.index += 1;
+                return result;
+            } else {
+                self.index += 1;
+            }
+        }
+
+        None
+    }
+}
+
+impl<B: Bitfield> DoubleEndedIterator for BitfieldIterator<B> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        while self.index <= self.index_end {
+            if self.bitfield.has_raw(self.index_end) {
+                let result = B::Element::try_from(self.index_end).ok();
+                self.index_end -= 1;
+                return result;
+            } else {
+                self.index_end -= 1;
+            }
+        }
+
+        None
+    }
+}
+// }}}
+// {{{ Subset iterator
+#[derive(Debug, Clone, Copy)]
+pub struct BitfieldSubsetIterator<B> {
+    index: usize,
+    index_end: usize,
+    ones: usize,
+    possibilities: B,
+}
+
+impl<B: Bitfield> BitfieldSubsetIterator<B> {
+    #[inline(always)]
+    pub fn new(possibilities: B, ones: usize) -> Self {
+        Self {
+            index: 0,
+            index_end: const_size_codec::count_with_n_ones(possibilities.len()) - 1,
+            ones,
+            possibilities,
+        }
+    }
+}
+
+impl<B: Bitfield> Iterator for BitfieldSubsetIterator<B> {
+    type Item = B;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index <= self.index_end {
+            let result = ConstSizeCodec::decode_ones(self.index, self.ones)?;
+            self.index += 1;
+            Bitfield::decode_relative_to(result, self.possibilities)
+        } else {
+            None
+        }
+    }
+}
+
+impl<B: Bitfield> DoubleEndedIterator for BitfieldSubsetIterator<B> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.index <= self.index_end {
+            let result = ConstSizeCodec::decode_ones(self.index, self.ones)?;
+            self.index_end -= 1;
+            Bitfield::decode_relative_to(result, self.possibilities)
+        } else {
+            None
+        }
+    }
 }
 // }}}
 // {{{ Main definition
@@ -447,7 +523,8 @@ impl Bitfield16 {
 }
 // }}}
 // {{{ Ones encoding
-pub mod one_encoding {
+pub mod const_size_codec {
+    use std::convert::TryInto;
     use once_cell::sync::Lazy;
 
     // {{{ Implementation
@@ -503,7 +580,14 @@ pub mod one_encoding {
         (encode, decode, lengths)
     });
 
-    impl Bitfield16 {
+    /// Returns the number of possible bitfields containing a given number of ones.
+    #[inline(always)]
+    pub fn count_with_n_ones(ones: usize) -> usize {
+        assert!(ones <= 16);
+        LOOKUP_TABLES.2[ones]
+    }
+
+    pub trait ConstSizeCodec: Bitfield  {
         /// Efficiently assume the number of ones in the bit
         /// representation of a number is known, removing such
         /// useless information.
@@ -511,22 +595,30 @@ pub mod one_encoding {
         /// The result fits inside an u16,
         /// but we pass around an `usize` for convenience.
         #[inline(always)]
-        pub fn encode_ones(self) -> usize {
-            LOOKUP_TABLES.0[self.0 as usize] as usize
+        fn encode_ones(self) -> usize {
+            assert!(Self::BITS <= 16);
+
+            LOOKUP_TABLES.0[self.into().into()] as usize
         }
 
-        /// Readd the information removed by `encode_ones`.
-        #[inline(always)]
-        pub fn decode_ones(encoded: usize, ones: usize) -> Option<Self> {
-            if encoded >= *LOOKUP_TABLES.2.get(ones)? {
-                return None;
+        /// Inverse of `encode_ones`.
+        fn decode_ones(encoded: usize, ones: usize) -> Option<Self> {
+            assert!(Self::BITS <= 16);
+
+            if encoded >= count_with_n_ones(ones) {
+                None
             } else {
-                return Some(Bitfield16::new(
-                    *LOOKUP_TABLES.1.get(MAGIC_INDICES.get(ones)? + encoded)?,
-                ));
+                let decoded = *LOOKUP_TABLES.1.get(MAGIC_INDICES[ones] + encoded)? as usize; 
+
+                Some(Self::new(
+                    decoded.try_into().ok()?
+                ))
             }
         }
-    }
+
+    } 
+
+    impl<T: Bitfield> ConstSizeCodec for T {}
     // }}}
     // {{{ Tests
     #[cfg(test)]
@@ -555,7 +647,7 @@ pub mod one_encoding {
 
                 assert_eq!(
                     Some(bitfield),
-                    Bitfield16::decode_ones(bitfield.encode_ones(), bitfield.len())
+                    ConstSizeCodec::decode_ones(bitfield.encode_ones(), bitfield.len())
                 );
             }
         }

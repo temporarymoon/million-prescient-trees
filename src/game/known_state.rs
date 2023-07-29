@@ -1,10 +1,12 @@
 use super::battlefield::{Battlefield, Battlefields};
 use super::creature::{Creature, CreatureSet};
+use super::creature_choice::UserCreatureChoice;
 use super::edict::{Edict, EdictSet};
 use super::status_effect::{StatusEffect, StatusEffectSet};
 use super::types::{Player, Score};
 use crate::helpers::bitfield::Bitfield;
 use crate::helpers::pair::{are_equal, Pair};
+use crate::helpers::try_from_iter::TryCollect;
 
 /// State of a player known by both players.
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
@@ -59,6 +61,13 @@ impl KnownState {
     #[inline(always)]
     pub fn hand_size(&self) -> usize {
         5 - self.graveyard.len() / 2
+    }
+
+    /// Computes the size of the hand in a non-main phase.
+    #[inline(always)]
+    pub fn post_main_hand_sizes(&self) -> Pair<usize> {
+        self.seer_statuses()
+            .map(|status| self.hand_size() - UserCreatureChoice::len_from_status(status))
     }
 
     /// Returns a tuple specifying whether each player has the seer effect active.

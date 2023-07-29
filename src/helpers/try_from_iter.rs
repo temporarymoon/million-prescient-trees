@@ -40,23 +40,18 @@ impl<A, const N: usize> TryFromIterator<A> for [A; N] {
 // {{{ Traits for iter methods
 pub trait TryOptCollect<A>: Sized + IntoIterator<Item = Option<A>> {
     /// Like `try_collect`, but can fail even when only given `Some` values.
-    fn attempt_opt_collect<I: TryFromIterator<A>>(self) -> Option<I>;
-}
-
-pub trait TryCollect: Sized + IntoIterator {
-    /// Like `collect`, but can fail.
-    fn attempt_collect<I: TryFromIterator<Self::Item>>(self) -> Option<I>;
-}
-
-impl<A, T: IntoIterator<Item = Option<A>>> TryOptCollect<A> for T {
     fn attempt_opt_collect<I: TryFromIterator<A>>(self) -> Option<I> {
         TryFromIterator::try_from_opt_iter(self)
     }
 }
 
-impl<T: IntoIterator> TryCollect for T {
+pub trait TryCollect: Sized + IntoIterator {
+    /// Like `collect`, but can fail.
     fn attempt_collect<I: TryFromIterator<Self::Item>>(self) -> Option<I> {
         TryFromIterator::try_from_iter(self)
     }
 }
+
+impl<A, T: IntoIterator<Item = Option<A>>> TryOptCollect<A> for T {}
+impl<T: IntoIterator> TryCollect for T {}
 // }}}

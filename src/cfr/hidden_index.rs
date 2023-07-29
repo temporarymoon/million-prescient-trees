@@ -2,8 +2,9 @@ use std::debug_assert_eq;
 
 use crate::game::creature::CreatureSet;
 use crate::game::creature_choice::{CreatureChoice, UserCreatureChoice};
-use crate::helpers::bitfield::{Bitfield16, Bitfield};
-use crate::helpers::choose::choose;
+use crate::helpers::bitfield::const_size_codec::ConstSizeCodec;
+use crate::helpers::bitfield::Bitfield;
+use crate::helpers::choose::{self, choose};
 use crate::helpers::ranged::MixRanged;
 
 /// Encodes all hidden information known by a player.
@@ -31,7 +32,10 @@ impl HiddenIndex {
         possibilities: CreatureSet,
         hand_size: usize,
     ) -> Option<CreatureSet> {
-        CreatureSet::decode_relative_to(Bitfield16::decode_ones(index, hand_size)?, possibilities)
+        CreatureSet::decode_relative_to(
+            ConstSizeCodec::decode_ones(index, hand_size)?,
+            possibilities,
+        )
     }
     // }}}
     // {{{ Main phase
@@ -102,8 +106,8 @@ impl HiddenIndex {
         let hand_contents = Self::encode_hand_contents(hand, hand_possibilites);
         let encoded_choice =
             CreatureChoice::encode_user_choice(user_creature_choice, choice_possibilites);
-        let max = hand_possibilites.hands_of_size(user_creature_choice.len());
-        let encoded = hand_contents.mix_ranged(encoded_choice.0, max);
+        let max_choice_value = choice_possibilites.hands_of_size(user_creature_choice.len());
+        let encoded = hand_contents.mix_ranged(encoded_choice.0, max_choice_value);
 
         Self(encoded)
     }
@@ -117,8 +121,13 @@ impl HiddenIndex {
     ) -> Option<(UserCreatureChoice, CreatureSet)> {
         let hand_possibilites = !(graveyard);
 
-        let max = hand_possibilites.hands_of_size(UserCreatureChoice::len_from_status(seer_active));
-        let (encoded_hand, encoded_choice) = self.0.unmix_ranged(max)?;
+        let choice_size = UserCreatureChoice::len_from_status(seer_active);
+        let max_choice_value = choose(
+            11 - graveyard.len() - hand_size, // length of `choice_possibilities`
+            choice_size,
+        );
+
+        let (encoded_hand, encoded_choice) = self.0.unmix_ranged(max_choice_value)?;
         let hand = Self::decode_hand_contents(encoded_hand, hand_possibilites, hand_size)?;
 
         let choice_possibilites = !(graveyard | hand);
@@ -164,7 +173,6 @@ impl HiddenIndex {
     }
     // }}}
 }
-
 
 // {{{ Tests
 #[cfg(test)]

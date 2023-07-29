@@ -5,6 +5,7 @@ pub mod choose;
 pub mod pair;
 pub mod bitfield;
 pub mod ranged;
+pub mod itertools;
 
 /// Normalize a vector. If all the values are zero,
 /// all the entries will be set to 1/size.

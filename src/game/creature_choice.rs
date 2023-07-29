@@ -1,5 +1,5 @@
 use super::creature::{Creature, CreatureSet};
-use crate::helpers::bitfield::{Bitfield16, Bitfield};
+use crate::helpers::bitfield::{const_size_codec::ConstSizeCodec, Bitfield, Bitfield16};
 
 // {{{ UserCreatureChoice
 /// User facing version of `CreatureChoice`.
@@ -38,6 +38,14 @@ impl UserCreatureChoice {
 
         bitfield
     }
+
+    pub fn from_creature_set(creatures: CreatureSet) -> Option<Self> {
+        if creatures.len() == 0 || creatures.len() > 2 {
+            None
+        } else {
+            Some(Self(creatures.index(0)?, creatures.index(1)))
+        }
+    }
 }
 // }}}
 // {{{ CreatureChoice
@@ -67,8 +75,10 @@ impl CreatureChoice {
         seer_active: bool,
     ) -> Option<UserCreatureChoice> {
         let length = UserCreatureChoice::len_from_status(seer_active);
-        let decoded =
-            CreatureSet::decode_relative_to(Bitfield16::decode_ones(self.0, length)?, possibilities)?;
+        let decoded = CreatureSet::decode_relative_to(
+            Bitfield16::decode_ones(self.0, length)?,
+            possibilities,
+        )?;
 
         let mut creatures = decoded.into_iter();
 

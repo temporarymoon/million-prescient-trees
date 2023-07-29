@@ -6,6 +6,7 @@ use crate::{
     make_bitfield,
 };
 use std::{
+    convert::TryFrom,
     debug_assert,
     fmt::{self, Display},
 };
@@ -57,21 +58,15 @@ impl Display for Creature {
     }
 }
 
-impl From<usize> for Creature {
-    fn from(value: usize) -> Self {
-        Creature::CREATURES[value]
+impl TryFrom<usize> for Creature {
+    type Error = ();
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        Creature::CREATURES.get(value).copied().ok_or(())
     }
 }
 // }}}
 // {{{ CreatureSet
-make_bitfield!(
-    CreatureSet,
-    Creature,
-    u16,
-    11,
-    Bitfield16,
-    true
-);
+make_bitfield!(CreatureSet, Creature, u16, 11, Bitfield16, true);
 
 impl CreatureSet {
     /// Computes the number of hands of a given size with cards from the current set.
