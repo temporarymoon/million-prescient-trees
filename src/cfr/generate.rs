@@ -10,6 +10,7 @@ use crate::game::simulate::BattleContext;
 use crate::game::types::{Player, TurnResult};
 use crate::helpers::bitfield::Bitfield;
 use crate::helpers::pair::{are_equal, Pair};
+use crate::helpers::try_from_iter::TryCollect;
 use bumpalo::Bump;
 use derive_more::{Add, AddAssign, Sum};
 use indicatif::HumanBytes;
@@ -183,10 +184,13 @@ impl Phase for MainPhase {
 
         state
             .edict_sets()
+            .iter()
             .zip(seer_statuses)
             .map(|(edicts, seer_status)| {
                 DecisionIndex::main_phase_index_count(edicts.len(), hand_size, seer_status)
             })
+            .attempt_collect()
+            .unwrap()
     }
 
     fn hidden_counts(&self, state: &KnownState) -> Pair<usize> {
@@ -366,8 +370,11 @@ impl Phase for SeerPhase {
         let main_choices = state
             .forced_seer_player()
             .order_as([seer_player_creature, self.revealed_creature])
+            .iter()
             .zip(self.edict_choices)
-            .map(|(creatures, edict)| FinalMainPhaseChoice::new(creatures, edict));
+            .map(|(creatures, edict)| FinalMainPhaseChoice::new(*creatures, edict))
+            .attempt_collect()
+            .unwrap();
 
         let context = BattleContext {
             main_choices,

@@ -43,4 +43,4 @@ impl From<usize> for Edict {
 }
 // }}}
 
-make_bitfield!(EdictSet, Edict, u8, 5, EdictSetIterator, Bitfield16, false);
+make_bitfield!(EdictSet, Edict, u8, 5, Bitfield16, false);

@@ -7,6 +7,7 @@ use crate::game::types::Player;
 use crate::helpers::bitfield::Bitfield;
 use crate::helpers::pair::Pair;
 use crate::helpers::ranged::MixRanged;
+use crate::helpers::try_from_iter::{TryOptCollect, TryCollect};
 
 use super::decision_index::DecisionIndex;
 use super::hidden_index::HiddenIndex;
@@ -41,25 +42,24 @@ impl RevealIndex {
     pub fn from_decisions(
         hidden: Pair<HiddenIndex>,
         decisions: Pair<DecisionIndex>,
-        graveyard: CreatureSet,
+        mut graveyard: CreatureSet,
         hand_size: usize,
         edict_sets: Pair<EdictSet>,
         seer_active: bool,
     ) -> Option<(Self, Pair<HiddenIndex>)> {
         let mut hands = hidden.try_map(|h| h.decode_main_index(graveyard, hand_size))?;
-        let decisions =
-            decisions
-                .zip(edict_sets)
-                .zip(hands)
-                .try_map(|((decision, edicts), hand)| {
-                    decision.decode_main_phase_index(edicts, hand, seer_active)
-                })?;
+        let decisions: [_; 2] = decisions
+            .iter()
+            .zip(edict_sets)
+            .zip(hands)
+            .map(|((decision, edicts), hand)| {
+                decision.decode_main_phase_index(edicts, hand, seer_active)
+            })
+            .attempt_opt_collect()?;
 
         let creature_choices = decisions.map(|i| i.0);
         let edicts = decisions.map(|i| i.1);
         let reveal_index = Self::encode_main_phase_reveal(edicts, edict_sets);
-
-        let mut graveyard = graveyard; // Is this necessary?
 
         for (i, creature_choice) in creature_choices.iter().enumerate() {
             let played = creature_choice.as_creature_set();
@@ -67,9 +67,9 @@ impl RevealIndex {
             hands[i] -= played;
         }
 
-        let hidden_indices = creature_choices.zip(hands).map(|(creature_choice, hand)| {
-            HiddenIndex::encode_sabotage_seer_index(creature_choice, hand, graveyard)
-        });
+        let hidden_indices = creature_choices.iter().zip(hands).map(|(creature_choice, hand)| {
+            HiddenIndex::encode_sabotage_seer_index(*creature_choice, hand, graveyard)
+        }).attempt_collect().unwrap();
 
         Some((reveal_index, hidden_indices))
     }

@@ -1,5 +1,6 @@
 use rand::Rng;
 
+pub mod try_from_iter;
 pub mod choose;
 pub mod pair;
 pub mod bitfield;

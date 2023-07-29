@@ -1,6 +1,6 @@
 // {{{ Trait definition
 pub trait Bitfield: Sized + Copy + Into<Self::Representation> {
-    type Element: From<usize>;
+    type Element: From<usize> + Copy;
     type Representation;
 
     /// The maximum valid value this bitfield can take.
@@ -58,6 +58,12 @@ pub trait Bitfield: Sized + Copy + Into<Self::Representation> {
     /// add(0b0110, 1) // 0b0100
     /// ```
     fn remove(&mut self, index: Self::Element);
+
+    /// Moves an element from `self` to some other bitfield.
+    fn move_one(&mut self, to: &mut Self, bit: Self::Element) {
+        self.remove(bit);
+        to.add(bit);
+    }
 
     /// Sets all bits to one.
     #[inline(always)]
@@ -122,7 +128,6 @@ macro_rules! make_bitfield {
         $element: ty, 
         $repr: ty, 
         $bits: expr, 
-        $iterator: ident, 
         $index_bitfield: ty, 
         $default_is_empty: literal
     ) => {
@@ -355,55 +360,57 @@ macro_rules! make_bitfield {
         }
         // }}}
         // {{{ Iterator
-        pub struct $iterator {
-            index: usize,
-            index_end: usize,
-            bitfield: $name,
-        }
-
-        impl Iterator for $iterator {
-            type Item = $element;
-
-            fn next(&mut self) -> Option<Self::Item> {
-                while self.index <= self.index_end {
-                    if self.bitfield.has_raw(self.index) {
-                        let result = <$element>::from(self.index);
-                        self.index += 1;
-                        return Some(result);
-                    } else {
-                        self.index += 1;
-                    }
-                }
-
-                None
+        paste::paste! {
+            pub struct [<$name Iterator>] {
+                index: usize,
+                index_end: usize,
+                bitfield: $name,
             }
-        }
 
-        impl DoubleEndedIterator for $iterator {
-            fn next_back(&mut self) -> Option<Self::Item> {
-                while self.index <= self.index_end {
-                    if self.bitfield.has_raw(self.index_end) {
-                        let result = <$element>::from(self.index_end);
-                        self.index_end -= 1;
-                        return Some(result);
-                    } else {
-                        self.index_end -= 1;
+            impl Iterator for [<$name Iterator>] {
+                type Item = $element;
+
+                fn next(&mut self) -> Option<Self::Item> {
+                    while self.index <= self.index_end {
+                        if self.bitfield.has_raw(self.index) {
+                            let result = <$element>::from(self.index);
+                            self.index += 1;
+                            return Some(result);
+                        } else {
+                            self.index += 1;
+                        }
                     }
+
+                    None
                 }
-
-                None
             }
-        }
 
-        impl IntoIterator for $name {
-            type Item = $element;
-            type IntoIter = $iterator;
+            impl DoubleEndedIterator for [<$name Iterator>] {
+                fn next_back(&mut self) -> Option<Self::Item> {
+                    while self.index <= self.index_end {
+                        if self.bitfield.has_raw(self.index_end) {
+                            let result = <$element>::from(self.index_end);
+                            self.index_end -= 1;
+                            return Some(result);
+                        } else {
+                            self.index_end -= 1;
+                        }
+                    }
 
-            fn into_iter(self) -> Self::IntoIter {
-                $iterator {
-                    index: 0,
-                    index_end: 15,
-                    bitfield: self,
+                    None
+                }
+            }
+
+            impl IntoIterator for $name {
+                type Item = $element;
+                type IntoIter = [<$name Iterator>];
+
+                fn into_iter(self) -> Self::IntoIter {
+                    [<$name Iterator>] {
+                        index: 0,
+                        index_end: 15,
+                        bitfield: self,
+                    }
                 }
             }
         }
@@ -428,7 +435,6 @@ make_bitfield!(
     usize,
     u16,
     16,
-    Bitfield16Iterator,
     Bitfield16,
     true
 );

@@ -48,5 +48,5 @@ impl From<usize> for StatusEffect {
    } 
 }
 
-make_bitfield!(StatusEffectSet, StatusEffect, u8, 7, StatusEffectSetIterator, Bitfield16, true);
+make_bitfield!(StatusEffectSet, StatusEffect, u8, 7, Bitfield16, true);
 

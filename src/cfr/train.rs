@@ -1,4 +1,4 @@
-use std::{unreachable, println};
+use std::{println, unreachable};
 
 use crate::game::types::Score;
 

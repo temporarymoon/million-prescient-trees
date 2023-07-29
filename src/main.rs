@@ -9,7 +9,6 @@
 #![feature(iter_array_chunks)]
 #![feature(iter_next_chunk)]
 #![feature(array_try_map)]
-#![feature(array_zip)]
 #![feature(array_methods)]
 #![allow(dead_code)]
 

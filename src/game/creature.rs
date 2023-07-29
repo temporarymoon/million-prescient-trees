@@ -69,7 +69,6 @@ make_bitfield!(
     Creature,
     u16,
     11,
-    CreatureSetIterator,
     Bitfield16,
     true
 );
