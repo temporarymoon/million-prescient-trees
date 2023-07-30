@@ -1,8 +1,5 @@
 use crate::{
-    helpers::{
-        bitfield::{Bitfield, Bitfield16},
-        choose::choose,
-    },
+    helpers::bitfield::{Bitfield, Bitfield16},
     make_bitfield,
 };
 use std::{
@@ -65,14 +62,5 @@ impl TryFrom<usize> for Creature {
     }
 }
 // }}}
-// {{{ CreatureSet
-make_bitfield!(CreatureSet, Creature, u16, 11, Bitfield16, true);
 
-impl CreatureSet {
-    /// Computes the number of hands of a given size with cards from the current set.
-    #[inline(always)]
-    pub fn hands_of_size(self, size: usize) -> usize {
-        choose(self.len() as usize, size)
-    }
-}
-// }}}
+make_bitfield!(CreatureSet, Creature, u16, 11, Bitfield16, true);

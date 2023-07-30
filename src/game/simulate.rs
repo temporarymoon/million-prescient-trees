@@ -647,6 +647,10 @@ mod tests {
         ctx.set_edict(Player::You, Edict::RileThePublic);
 
         for creature in Creature::CREATURES {
+            if creature == Creature::Wall {
+                continue;
+            }
+
             ctx.set_creature(Player::You, creature);
 
             let expected_result = if creature == Creature::Witch || creature == Creature::Rogue {
@@ -673,6 +677,9 @@ mod tests {
             (Creature::Bard, StatusEffect::Bard),
             (Creature::Mercenary, StatusEffect::Mercenary),
         ];
+
+        // The code can't (and shouldn't) handle both players having the same creature!
+        ctx.set_creature(Player::You, Creature::Monarch);
 
         for (creature, effect) in setups {
             ctx.set_creature(Player::Me, creature);
@@ -731,6 +738,7 @@ mod tests {
         ctx.set_edict(Player::You, Edict::RileThePublic);
 
         for creature in Creature::CREATURES {
+            // The code can't (and shouldn't) handle both players having the same creature!
             if creature == Creature::Diplomat {
                 continue;
             };

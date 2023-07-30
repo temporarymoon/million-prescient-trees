@@ -1,11 +1,12 @@
-use std::{fmt::Binary, convert::{TryFrom, TryInto}};
+use std::{fmt::Binary, convert::{TryFrom, TryInto}, ops::BitAnd};
 
 use self::const_size_codec::ConstSizeCodec;
 
 use super::choose::choose;
 
 // {{{ Trait definition
-pub trait Bitfield: Sized + Copy + Binary + Into<Self::Representation> {
+pub trait Bitfield: Sized + Copy + Binary + Into<Self::Representation> 
+  + IntoIterator<Item = Self::Element> + BitAnd<Output = Self> + Eq {
     type Element: TryFrom<usize> + Copy;
     type IndexBitfield: Bitfield<Element = usize>;
     type Representation: Into<usize> + TryFrom<usize>;
@@ -147,15 +148,10 @@ pub trait Bitfield: Sized + Copy + Binary + Into<Self::Representation> {
     fn encode_relative_to(self, other: Self) -> Self::IndexBitfield {
         let mut result = Self::IndexBitfield::empty();
 
+        assert!(self.is_subset_of(other));
+
         for i in 0..Self::BITS {
             if self.has_raw(i) {
-                assert!(
-                    other.has_raw(i),
-                    "{:b} contains bits not contained in {:b}",
-                    self,
-                    other
-                );
-
                 result.add(other.indexof_raw(i))
             }
         }
@@ -173,12 +169,33 @@ pub trait Bitfield: Sized + Copy + Binary + Into<Self::Representation> {
             }
         }
 
+        debug_assert!(result.is_subset_of(other));
+
         Some(result)
     }
 
     /// Returns an iterator over the subsets of a given size.
+    #[inline(always)]
     fn subsets_of_size(self, ones: usize) -> BitfieldSubsetIterator<Self> {
         BitfieldSubsetIterator::new(self, ones) 
+    }
+
+    /// Returns true if all bits in `self` occur in `other`.
+    #[inline(always)]
+    fn is_subset_of(self, other: Self) -> bool {
+        self & other == self
+    }
+
+    /// Computes the number of subsets of a given size with elements from the current set.
+    #[inline(always)]
+    fn count_subsets_of_size(self, ones: usize) -> usize {
+        choose(self.len(), ones)
+    }
+
+    /// Returns true if two bitfields are disjoint
+    #[inline(always)]
+    fn is_disjoint_from(self, other: Self) -> bool {
+        self & other == Self::empty()
     }
 }
 // }}}
@@ -618,6 +635,18 @@ pub mod const_size_codec {
             }
         }
 
+        /// Combination of `encode_ones` chained onto `encode_relative_to`
+        #[inline(always)]
+        fn encode_ones_relative_to(self, other: Self) -> usize {
+            self.encode_relative_to(other).encode_ones()
+        }
+
+        /// Inverse of `encode_ones_relative_to`
+        #[inline(always)]
+        fn decode_ones_relative_to(encoded: usize, ones: usize, other: Self) -> Option<Self> {
+            let encoded = Self::IndexBitfield::decode_ones(encoded, ones)?;
+            Self::decode_relative_to(encoded, other)
+        }
     } 
 
     impl<T: Bitfield> ConstSizeCodec for T {}

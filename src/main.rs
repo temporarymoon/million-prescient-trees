@@ -15,17 +15,13 @@
 
 use bumpalo::Bump;
 use cfr::generate::GenerationContext;
-use cfr::phase::{MainPhase, Phase, SeerPhase};
 use game::battlefield::Battlefield;
-use game::creature::CreatureSet;
-use game::edict::Edict;
 use game::known_state::KnownState;
 use std::println;
 use std::time::Instant;
 
 use crate::cfr::generate::EstimationContext;
 use crate::game::creature::Creature;
-use crate::game::status_effect::StatusEffect;
 use crate::helpers::bitfield::Bitfield;
 
 mod ai;

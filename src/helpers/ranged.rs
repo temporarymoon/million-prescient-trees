@@ -1,4 +1,7 @@
-use super::bitfield::Bitfield;
+use super::{
+    bitfield::{const_size_codec::ConstSizeCodec, Bitfield},
+    choose::choose,
+};
 
 pub trait MixRanged: Sized {
     /// Embed an integer inside self given the maximum value of the integer.
@@ -7,22 +10,41 @@ pub trait MixRanged: Sized {
     /// The inverse of mix_ranged.
     fn unmix_ranged(self, max: usize) -> Option<(Self, usize)>;
 
+    /// Mix in data about the index of some bit in a bitfield.
     fn mix_indexof<T: Bitfield>(self, index: T::Element, possibilities: T) -> Self {
         self.mix_ranged(possibilities.indexof(index), possibilities.len())
     }
 
-    fn unmix_indexof<T: Bitfield>(self,  possibilities: T) -> Option<(Self, T::Element)> {
+    /// Inverse of `mix_indeox`
+    fn unmix_indexof<T: Bitfield>(self, possibilities: T) -> Option<(Self, T::Element)> {
         let (remaining, index) = self.unmix_ranged(possibilities.len())?;
         Some((remaining, possibilities.index(index)?))
+    }
+
+    /// Generalized version of `mix_indexof` which works with arbitrary sized subsets.
+    fn mix_subset<T: Bitfield>(self, subset: T, of: T) -> Self {
+        assert!(subset.is_subset_of(of));
+        let values = choose(of.len(), subset.len());
+        self.mix_ranged(subset.encode_ones_relative_to(of), values)
+    }
+
+    /// Inverse of `mix_subset`
+    fn unmix_subset<T: Bitfield>(self, length: usize, of: T) -> Option<(Self, T)> {
+        let values = choose(of.len(), length);
+        let (remaining, encoded) = self.unmix_ranged(values)?;
+        let subset = T::decode_ones_relative_to(encoded, length, of)?;
+
+        Some((remaining, subset))
     }
 }
 
 impl MixRanged for usize {
+    #[inline(always)]
     fn mix_ranged(self, value: usize, max: usize) -> Self {
         max * self + value
     }
 
-    // TODO: return Option
+    #[inline(always)]
     fn unmix_ranged(self, max: usize) -> Option<(Self, usize)> {
         Some((self / max, self % max))
     }
