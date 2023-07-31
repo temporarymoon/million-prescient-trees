@@ -1,12 +1,16 @@
-use std::{fmt::Binary, convert::{TryFrom, TryInto}, ops::BitAnd};
+use std::{fmt::{Binary, Debug}, convert::{TryFrom, TryInto}, ops::BitAnd};
 
 use self::const_size_codec::ConstSizeCodec;
 
 use super::choose::choose;
 
 // {{{ Trait definition
+/// A (non exhuasive) list of laws:
+/// - `Self::Representation::try_from` shouldn't be able to fail
+///   for values in the range `0..Self::MAX.into()`
 pub trait Bitfield: Sized + Copy + Binary + Into<Self::Representation> 
-  + IntoIterator<Item = Self::Element> + BitAnd<Output = Self> + Eq {
+  + IntoIterator<Item = Self::Element> + BitAnd<Output = Self> + Eq 
+{
     type Element: TryFrom<usize> + Copy;
     type IndexBitfield: Bitfield<Element = usize>;
     type Representation: Into<usize> + TryFrom<usize>;
@@ -22,6 +26,15 @@ pub trait Bitfield: Sized + Copy + Binary + Into<Self::Representation>
 
     /// Construct a bitfield containing a single bit.
     fn singleton(x: Self::Element) -> Self;
+
+    /// Construct a bitfield containing at most one bit.
+    #[inline(always)]
+    fn opt_singleton(x: Option<Self::Element>) -> Self {
+        match x {
+            Some(x) => Self::singleton(x),
+            None => Self::empty()
+        }
+    }
 
     /// Returns a bitfield containing only zeros.
     fn empty() -> Self;
@@ -176,8 +189,20 @@ pub trait Bitfield: Sized + Copy + Binary + Into<Self::Representation>
 
     /// Returns an iterator over the subsets of a given size.
     #[inline(always)]
-    fn subsets_of_size(self, ones: usize) -> BitfieldSubsetIterator<Self> {
-        BitfieldSubsetIterator::new(self, ones) 
+    fn subsets_of_size(self, ones: usize) -> BitfieldFixedSizeSubsetIterator<Self> {
+        BitfieldFixedSizeSubsetIterator::new(self, ones) 
+    }
+
+    /// Returns an iterator over all subsets of a given bitfield.
+    #[inline(always)]
+    fn subsets(self) -> BitfieldSubsetIterator<Self> {
+        BitfieldSubsetIterator::new(self) 
+    }
+
+    /// Returns an iterator over every valid bitfield
+    #[inline(always)]
+    fn members() -> BitfieldSubsetIterator<Self> {
+        Self::all().subsets()
     }
 
     /// Returns true if all bits in `self` occur in `other`.
@@ -398,6 +423,23 @@ macro_rules! make_bitfield {
             }
         }
 
+        impl std::ops::Sub<$element> for $name {
+            type Output = Self;
+
+            /// Removes an element from a bitfield
+            ///
+            /// # Examples
+            ///
+            /// ```
+            /// 0b0111 - 0b1010 // 0x0101
+            /// ```
+            #[inline(always)]
+            fn sub(mut self, rhs: $element) -> Self::Output {
+                self.remove(rhs);
+                self
+            }
+        }
+
         impl std::ops::SubAssign<$name> for $name {
             #[inline(always)]
             fn sub_assign(&mut self, rhs: Self) {
@@ -477,16 +519,16 @@ impl<B: Bitfield> DoubleEndedIterator for BitfieldIterator<B> {
     }
 }
 // }}}
-// {{{ Subset iterator
+// {{{ Fixed size subset iterator
 #[derive(Debug, Clone, Copy)]
-pub struct BitfieldSubsetIterator<B> {
+pub struct BitfieldFixedSizeSubsetIterator<B> {
     index: usize,
     index_end: usize,
     ones: usize,
     possibilities: B,
 }
 
-impl<B: Bitfield> BitfieldSubsetIterator<B> {
+impl<B: Bitfield> BitfieldFixedSizeSubsetIterator<B> {
     #[inline(always)]
     pub fn new(possibilities: B, ones: usize) -> Self {
         Self {
@@ -498,7 +540,7 @@ impl<B: Bitfield> BitfieldSubsetIterator<B> {
     }
 }
 
-impl<B: Bitfield> Iterator for BitfieldSubsetIterator<B> {
+impl<B: Bitfield> Iterator for BitfieldFixedSizeSubsetIterator<B> {
     type Item = B;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -512,10 +554,57 @@ impl<B: Bitfield> Iterator for BitfieldSubsetIterator<B> {
     }
 }
 
+impl<B: Bitfield> DoubleEndedIterator for BitfieldFixedSizeSubsetIterator<B> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.index <= self.index_end {
+            let result = ConstSizeCodec::decode_ones(self.index_end, self.ones)?;
+            self.index_end -= 1;
+            Bitfield::decode_relative_to(result, self.possibilities)
+        } else {
+            None
+        }
+    }
+}
+// }}}
+// {{{ Subset iterator
+#[derive(Debug, Clone, Copy)]
+pub struct BitfieldSubsetIterator<B> {
+    index: usize,
+    index_end: usize,
+    possibilities: B,
+}
+
+impl<B: Bitfield> BitfieldSubsetIterator<B> {
+    #[inline(always)]
+    pub fn new(possibilities: B) -> Self {
+        Self {
+            index: 0,
+            // NOTE: this could fail a bit if the representation is `usize`,
+            // but we never use bitfields that large in practice.
+            index_end: 2usize.pow(possibilities.len() as u32) - 1,
+            possibilities,
+        }
+    }
+}
+
+impl<B: Bitfield> Iterator for BitfieldSubsetIterator<B> {
+    type Item = B;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index <= self.index_end {
+            let result = B::IndexBitfield::new(self.index.try_into().ok()?);
+            self.index += 1;
+            Bitfield::decode_relative_to(result, self.possibilities)
+        } else {
+            None
+        }
+    }
+}
+
 impl<B: Bitfield> DoubleEndedIterator for BitfieldSubsetIterator<B> {
     fn next_back(&mut self) -> Option<Self::Item> {
         if self.index <= self.index_end {
-            let result = ConstSizeCodec::decode_ones(self.index, self.ones)?;
+            let result = B::IndexBitfield::new(self.index_end.try_into().ok()?);
             self.index_end -= 1;
             Bitfield::decode_relative_to(result, self.possibilities)
         } else {
@@ -893,6 +982,46 @@ mod tests {
                         .map(|d| d.encode_relative_to(other)),
                     Some(bitfield)
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn subset_iterator_produces_subsets() {
+        for i in 0..Bitfield16::MAX {
+            let b = Bitfield16::new(i);
+            for s in b.subsets() {
+                assert!(s.is_subset_of(b))
+            }
+        }
+    }
+
+    #[test]
+    fn subsets_correct_count() {
+        for i in 0..Bitfield16::MAX {
+            let b = Bitfield16::new(i);
+            assert_eq!(b.subsets().count(), 2usize.pow(b.len() as u32));
+        }
+    }
+
+    #[test]
+    fn subsets_of_size_iterator_produces_subsets() {
+        for i in 0..Bitfield16::MAX {
+            let b = Bitfield16::new(i);
+            for ones in 0..=b.len()  {
+                for s in b.subsets_of_size(ones) {
+                    assert!(s.is_subset_of(b), "{:b} is not a subset of {:b}", s, b)
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn subsets_of_size_correct_count() {
+        for i in 0..Bitfield16::MAX {
+            let b = Bitfield16::new(i);
+            for ones in 0..=b.len()  {
+                assert_eq!(b.subsets_of_size(ones).count(), b.count_subsets_of_size(ones));
             }
         }
     }

@@ -1,7 +1,10 @@
 use super::{
     creature::CreatureSet, creature_choice::UserCreatureChoice, edict::EdictSet, types::Player,
 };
-use crate::helpers::{bitfield::Bitfield, pair::Pair};
+use crate::{
+    cfr::phase::PhaseTag,
+    helpers::{bitfield::Bitfield, pair::Pair},
+};
 
 // {{{ Essentials trait
 pub trait KnownStateEssentials {
@@ -50,6 +53,16 @@ pub trait KnownStateEssentials {
         self.hand_size() - UserCreatureChoice::len_from_status(self.seer_player() == Some(player))
     }
 
+    /// Computes the size of the hand in a non-main phase.
+    #[inline(always)]
+    fn hand_size_during(&self, player: Player, phase: PhaseTag) -> usize {
+        if phase == PhaseTag::Main {
+            self.hand_size()
+        } else {
+            self.post_main_hand_size(player)
+        }
+    }
+
     /// Picks a player to reveal their creature last.
     /// If the seer effect is not active, this is arbitrary.
     #[inline(always)]
@@ -91,12 +104,20 @@ pub struct KnownStateSummary {
 
 impl KnownStateSummary {
     pub fn new(
-        edicts: Pair<EdictSet>,
+        edict_sets: Pair<EdictSet>,
         graveyard: CreatureSet,
         seer_player: Option<Player>,
     ) -> Self {
         Self {
-            edict_sets: edicts,
+            edict_sets,
+            graveyard,
+            seer_player,
+        }
+    }
+
+    pub fn new_all_edicts(graveyard: CreatureSet, seer_player: Option<Player>) -> Self {
+        Self {
+            edict_sets: Default::default(),
             graveyard,
             seer_player,
         }

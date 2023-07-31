@@ -1,5 +1,5 @@
 use super::decision_index::DecisionIndex;
-use super::hidden_index::HiddenIndex;
+use super::hidden_index::{self, HiddenIndex, PerPhaseInfo};
 use super::reveal_index::RevealIndex;
 use crate::game::choice::{FinalMainPhaseChoice, SabotagePhaseChoice};
 use crate::game::creature::{Creature, CreatureSet};
@@ -19,11 +19,15 @@ use std::mem::size_of;
 use std::{format, todo};
 
 // {{{ Phase tags
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PhaseTag {
     Main,
     Sabotage,
     Seer,
+}
+
+impl PhaseTag {
+    pub const PHASES: [PhaseTag; 3] = [PhaseTag::Main, PhaseTag::Sabotage, PhaseTag::Seer];
 }
 // }}}
 // {{{ PhaseStats
@@ -89,13 +93,15 @@ pub trait Phase: Sync {
     ) -> TurnResult<(Self::Next, KnownState)>;
 
     fn decision_counts(&self, state: &KnownState) -> Pair<usize>;
-    fn hidden_counts(&self, state: &KnownState) -> Pair<usize>;
+    fn hidden_counts(&self, state: &KnownState) -> Pair<usize> {
+        Player::PLAYERS.map(|player| HiddenIndex::count(state, player, Self::TAG))
+    }
     fn reveal_count(&self, state: &KnownState) -> usize;
 
     fn valid_hidden_states(
         &self,
         state: KnownStateSummary,
-    ) -> impl Iterator<Item = Pair<HiddenIndex>>;
+    ) -> impl Iterator<Item = Pair<hidden_index::EncodingInfo>>;
 
     fn advance_hidden_indices(
         &self,
@@ -139,9 +145,11 @@ impl Phase for MainPhase {
             .unwrap()
     }
 
+    // We offer a more performant implementation than the default one,
+    // which makes use of the fact that during the main phase,
+    // both players have the same number of possible hidden states!
     fn hidden_counts(&self, state: &KnownState) -> Pair<usize> {
-        let hand_size = state.hand_size();
-        let count = HiddenIndex::main_index_count(hand_size, state.graveyard);
+        let count = HiddenIndex::count(state, Player::Me, Self::TAG);
 
         [count; 2]
     }
@@ -170,9 +178,8 @@ impl Phase for MainPhase {
     fn valid_hidden_states(
         &self,
         state: KnownStateSummary,
-    ) -> impl Iterator<Item = Pair<HiddenIndex>> {
+    ) -> impl Iterator<Item = Pair<hidden_index::EncodingInfo>> {
         let possibilities = !state.graveyard;
-        let graveyard = state.graveyard;
         let hand_size = state.hand_size();
 
         possibilities
@@ -180,7 +187,7 @@ impl Phase for MainPhase {
             .dependent_cartesian_pair_product(move |my_hand| {
                 (possibilities - my_hand).subsets_of_size(hand_size)
             })
-            .map(move |hands| hands.map(|hand| HiddenIndex::encode_main_index(hand, graveyard)))
+            .map(move |hands| hands.map(|hand| hidden_index::PerPhaseInfo::Main(hand)))
     }
 
     fn advance_hidden_indices(
@@ -190,7 +197,12 @@ impl Phase for MainPhase {
         decisions: Pair<DecisionIndex>,
     ) -> Option<(Pair<HiddenIndex>, RevealIndex)> {
         let mut graveyard = state.graveyard;
-        let mut hands = hidden.try_map(|h| h.decode_main_index(graveyard, state.hand_size()))?;
+        let mut hands = Player::PLAYERS.try_map(|player| {
+            player
+                .select(hidden)
+                .decode(state, player, PerPhaseInfo::Main(()))
+                .map(|r| r.0)
+        })?;
         let edict_sets = state.edict_sets();
 
         let decisions = Player::PLAYERS.try_map(|player| {
@@ -211,11 +223,10 @@ impl Phase for MainPhase {
         }
 
         let hidden_indices = Player::PLAYERS.map(|player| {
-            HiddenIndex::encode_sabotage_seer_index(
+            HiddenIndex::encode(
                 state,
                 player,
-                player.select(hands),
-                player.select(creature_choices),
+                PerPhaseInfo::Sabotage(player.select(hands), player.select(creature_choices)),
             )
         });
 
@@ -263,10 +274,6 @@ impl Phase for SabotagePhase {
             .map(|status| Self::sabotage_vector_size(status, guess_count))
     }
 
-    fn hidden_counts(&self, state: &KnownState) -> Pair<usize> {
-        Player::PLAYERS.map(|player| HiddenIndex::sabotage_seer_index_count(state, player))
-    }
-
     fn reveal_count(&self, state: &KnownState) -> usize {
         RevealIndex::sabotage_phase_count(
             self.sabotage_statuses(),
@@ -297,50 +304,34 @@ impl Phase for SabotagePhase {
     fn valid_hidden_states(
         &self,
         state: KnownStateSummary,
-    ) -> impl Iterator<Item = Pair<HiddenIndex>> {
-        let possibilities = !state.graveyard;
-        let hand_size = state.hand_size();
-        let seer_statuses = state.seer_statuses();
+    ) -> impl Iterator<Item = Pair<hidden_index::EncodingInfo>> {
+        MainPhase::new()
+            .valid_hidden_states(state)
+            .flat_map(move |info_pairs| {
+                let [a, b] = Player::PLAYERS.map(|player| {
+                    let hand = player.select(info_pairs).get_main();
 
-        possibilities
-            .subsets_of_size(hand_size)
-            .dependent_cartesian_pair_product(move |my_hand| {
-                (possibilities - my_hand).subsets_of_size(hand_size)
-            })
-            .flat_map(move |hands| {
-                let [mine, yours]: Pair<_> = hands
-                    .iter()
-                    .copied()
-                    .zip(seer_statuses)
-                    .zip(Player::PLAYERS)
-                    .map(move |((hand, status), player)| {
-                        hand.subsets_of_size(1 + <usize>::from(status))
-                            .map(move |choice| {
-                                HiddenIndex::encode_sabotage_seer_index(
-                                    &state, player, hand, choice,
-                                )
-                            })
-                    })
-                    .attempt_collect()
-                    .unwrap();
+                    hand.subsets_of_size(state.creature_choice_size(player))
+                        .map(move |choice| PerPhaseInfo::Sabotage(hand, choice))
+                });
 
-                mine.cartesian_pair_product(yours)
+                a.cartesian_pair_product(b)
             })
     }
 
     fn advance_hidden_indices(
         &self,
-        state: &KnownStateSummary,
-        hidden: Pair<HiddenIndex>,
-        decisions: Pair<DecisionIndex>,
+        _state: &KnownStateSummary,
+        _hidden: Pair<HiddenIndex>,
+        _decisions: Pair<DecisionIndex>,
     ) -> Option<(Pair<HiddenIndex>, RevealIndex)> {
-        let edict_sets = state.edict_sets();
-        let mut graveyard = state.graveyard;
-        let mut hands = Player::PLAYERS.try_map(|player| {
-            player
-                .select(hidden)
-                .decode_sabotage_seer_index(state, player)
-        })?;
+        // let edict_sets = state.edict_sets();
+        // let mut graveyard = state.graveyard;
+        // let mut hands = Player::PLAYERS.try_map(|player| {
+        //     player
+        //         .select(hidden)
+        //         .decode_sabotage_seer_index(state, player)
+        // })?;
 
         // let decisions: [_; 2] = decisions
         //     .iter()
@@ -418,22 +409,6 @@ impl Phase for SeerPhase {
             .order_as([seer_player_decisions, 1])
     }
 
-    fn hidden_counts(&self, state: &KnownState) -> Pair<usize> {
-        Player::PLAYERS
-            .map(|player| {
-                if player == state.forced_seer_player() {
-                    HiddenIndex::sabotage_seer_index_count(state, player)
-                } else {
-                    HiddenIndex::main_index_count(
-                        state.hand_size() - 1,
-                        self.graveyard(state.graveyard),
-                    )
-                }
-            })
-            .attempt_collect()
-            .unwrap()
-    }
-
     fn reveal_count(&self, state: &KnownState) -> usize {
         RevealIndex::seer_phase_count(self.graveyard(state.graveyard))
     }
@@ -471,37 +446,29 @@ impl Phase for SeerPhase {
     fn valid_hidden_states(
         &self,
         state: KnownStateSummary,
-    ) -> impl Iterator<Item = Pair<HiddenIndex>> {
-        let graveyard = self.graveyard(state.graveyard);
-        let possibilities = !graveyard;
+    ) -> impl Iterator<Item = Pair<hidden_index::EncodingInfo>> {
         let seer_player = state.forced_seer_player();
-        let hand_size = state.hand_size();
-        let seer_is_active = state.seer_is_active();
+        let revealed_creature = self.revealed_creature;
 
-        // We start by arranging the players such that the seer player is first.
-        possibilities
-            .subsets_of_size(hand_size)
-            .dependent_cartesian_product(move |my_hand| {
-                (possibilities - my_hand).subsets_of_size(hand_size - 1)
-            })
-            .flat_map(move |(seer_player_hand, non_seer_player_hand)| {
-                let seer_player_indices = seer_player_hand
-                    .subsets_of_size(1 + <usize>::from(seer_is_active))
+        SabotagePhase::new(self.edict_choices)
+            .valid_hidden_states(state)
+            .flat_map(move |info_pairs| {
+                let seer_player_hand = seer_player.select(info_pairs).get_main();
+
+                let seer_player_infos = seer_player_hand
+                    .subsets_of_size(state.creature_choice_size(seer_player))
                     .map(move |choice| {
-                        HiddenIndex::encode_sabotage_seer_index(
-                            &state,
-                            seer_player,
-                            seer_player_hand,
-                            choice,
-                        )
+                        PerPhaseInfo::Seer(seer_player_hand, choice, revealed_creature)
                     });
 
-                let non_seer_player_indices = std::iter::once(HiddenIndex::encode_main_index(
+                let non_seer_player_hand = (!seer_player).select(info_pairs).get_main();
+                let non_seer_player_info = PerPhaseInfo::Seer(
                     non_seer_player_hand,
-                    graveyard,
-                ));
+                    CreatureSet::singleton(revealed_creature),
+                    revealed_creature,
+                );
 
-                seer_player_indices.cartesian_pair_product(non_seer_player_indices)
+                seer_player_infos.map(move |o| [o, non_seer_player_info])
             })
             .map(move |indices| seer_player.order_as(indices))
     }

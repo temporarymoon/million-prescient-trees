@@ -1,7 +1,7 @@
-use std::debug_assert_eq;
+use std::assert_eq;
 
+use super::phase::PhaseTag;
 use crate::game::creature::{Creature, CreatureSet};
-use crate::game::creature_choice::UserCreatureChoice;
 use crate::game::known_state_summary::KnownStateEssentials;
 use crate::game::types::Player;
 use crate::helpers::bitfield::const_size_codec::ConstSizeCodec;
@@ -9,6 +9,102 @@ use crate::helpers::bitfield::Bitfield;
 use crate::helpers::choose::choose;
 use crate::helpers::ranged::MixRanged;
 
+// {{{ PerPhaseInfo
+/// Generic struct which holds a phase tag, and optionally:
+/// - a `A` if `phase >= main`
+/// - a `B` if `phase >= sabotage`
+/// - a `C` if `phase >= seer`
+#[derive(Debug, Clone, Copy)]
+pub enum PerPhaseInfo<A, B, C> {
+    Main(A),
+    Sabotage(A, B),
+    Seer(A, B, C),
+}
+
+impl<A, B, C> PerPhaseInfo<A, B, C> {
+    #[inline(always)]
+    pub fn tag(self) -> PhaseTag {
+        match self {
+            Self::Main(_) => PhaseTag::Main,
+            Self::Sabotage(_, _) => PhaseTag::Sabotage,
+            Self::Seer(_, _, _) => PhaseTag::Seer,
+        }
+    }
+
+    #[inline(always)]
+    pub fn forget_main(self) -> PerPhaseInfo<(), B, C> {
+        match self {
+            Self::Main(_) => PerPhaseInfo::Main(()),
+            Self::Sabotage(_, b) => PerPhaseInfo::Sabotage((), b),
+            Self::Seer(_, b, c) => PerPhaseInfo::Seer((), b, c),
+        }
+    }
+
+    #[inline(always)]
+    pub fn forget_sabotage(self) -> PerPhaseInfo<A, (), C> {
+        match self {
+            Self::Main(a) => PerPhaseInfo::Main(a),
+            Self::Sabotage(a, _) => PerPhaseInfo::Sabotage(a, ()),
+            Self::Seer(a, _, c) => PerPhaseInfo::Seer(a, (), c),
+        }
+    }
+
+    #[inline(always)]
+    pub fn is_post_main(self) -> bool {
+        self.tag() != PhaseTag::Main
+    }
+
+    #[inline(always)]
+    pub fn is_post_sabotage(self) -> bool {
+        self.tag() == PhaseTag::Seer
+    }
+
+    #[inline(always)]
+    pub fn get_main(self) -> A {
+        match self {
+            Self::Main(a) => a,
+            Self::Sabotage(a, _) => a,
+            Self::Seer(a, _, _) => a,
+        }
+    }
+
+    #[inline(always)]
+    pub fn get_sabotage(self) -> Option<B> {
+        match self {
+            Self::Main(_) => None,
+            Self::Sabotage(_, b) => Some(b),
+            Self::Seer(_, b, _) => Some(b),
+        }
+    }
+
+    #[inline(always)]
+    pub fn get_seer(self) -> Option<C> {
+        match self {
+            Self::Seer(_, _, c) => Some(c),
+            _ => None,
+        }
+    }
+
+    #[inline(always)]
+    pub fn get_post_main(self) -> Option<(B, Option<C>)> {
+        match self {
+            Self::Main(_) => None,
+            Self::Sabotage(_, b) => Some((b, None)),
+            Self::Seer(_, b, c) => Some((b, Some(c))),
+        }
+    }
+
+    #[inline(always)]
+    pub fn get_pre_seer(self) -> (A, Option<B>) {
+        match self {
+            Self::Main(a) => (a, None),
+            Self::Sabotage(a, b) => (a, Some(b)),
+            Self::Seer(a, b, _) => (a, Some(b)),
+        }
+    }
+}
+// }}}
+// {{{ HiddenIndex
 /// Encodes all hidden information known by a player.
 ///
 /// *Important semantics*:
@@ -17,7 +113,7 @@ use crate::helpers::ranged::MixRanged;
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
 pub struct HiddenIndex(pub usize);
 
-type HandContentIndex = usize;
+pub type EncodingInfo = PerPhaseInfo<CreatureSet, CreatureSet, Creature>;
 
 impl From<usize> for HiddenIndex {
     fn from(value: usize) -> Self {
@@ -26,149 +122,114 @@ impl From<usize> for HiddenIndex {
 }
 
 impl HiddenIndex {
-    // {{{ Hand contents
-    /// Encode the contents of the hand in a single integer.
-    /// Removes any information regarding hand size and
-    /// graveyard content from the resulting integer.
-    fn encode_hand_contents(hand: CreatureSet, possibilities: CreatureSet) -> HandContentIndex {
-        hand.encode_relative_to(possibilities).encode_ones()
-    }
-
-    /// Inverse of `encode_hand_contents`.
-    pub fn decode_hand_contents(
-        index: HandContentIndex,
-        possibilities: CreatureSet,
-        hand_size: usize,
-    ) -> Option<CreatureSet> {
-        CreatureSet::decode_relative_to(
-            ConstSizeCodec::decode_ones(index, hand_size)?,
-            possibilities,
-        )
-    }
-    // }}}
-    // {{{ Main phase
-    /// Encodes all hidden informations known by a player during the main phase.
-    #[inline(always)]
-    pub fn encode_main_index(hand: CreatureSet, graveyard: CreatureSet) -> Self {
-        Self(Self::encode_hand_contents(hand, !graveyard))
-    }
-
-    /// Inverse of `encode_main_index`.
-    #[inline(always)]
-    pub fn decode_main_index(
-        self,
-        graveyard: CreatureSet,
-        hand_size: usize,
-    ) -> Option<CreatureSet> {
-        Self::decode_hand_contents(self.0, !graveyard, hand_size)
-    }
-
-    /// One more than the maximum value of `encode_main_index`
-    #[inline(always)]
-    pub fn main_index_count(hand_size: usize, graveyard: CreatureSet) -> usize {
-        (!graveyard).count_subsets_of_size(hand_size)
-    }
-    // }}}
-    // {{{ Sabotage & seer phases
-    /// Makes sure the given/decoded data regarding the sabotage/seer phase is valid.
-    #[inline(always)]
-    fn assure_valid_sabotage_seer_data(
-        user_creature_choice: UserCreatureChoice,
-        hand: CreatureSet,
-        graveyard: CreatureSet,
-    ) {
-        let choice = user_creature_choice.as_creature_set();
-
-        debug_assert_eq!(
-            hand & graveyard,
-            Default::default(),
-            "The hand cannot conain cards from the graveyard"
-        );
-
-        debug_assert_eq!(
-            hand & choice,
-            Default::default(),
-            "The chosen creatures must no longer be in the hand"
-        );
-
-        debug_assert_eq!(
-            graveyard & choice,
-            Default::default(),
-            "The chosen creatures cannot yet be in the graveyard"
-        );
-    }
-
-    /// Encodes all hidden informations known by a player during the sabotage or seer phases.
-    /// The only information a player learns between the two is what creature the opponent has
-    /// played, but this can be encoded by simply adding said creature to the graveyard.
-    pub fn encode_sabotage_seer_index<S: KnownStateEssentials>(
+    // {{{ Codec
+    /// Returns true if a hidden index encoding under the given conditions
+    /// would contain info about the current player's creature choices.
+    fn index_contains_choice<S: KnownStateEssentials>(
         state: &S,
         player: Player,
-        hand: CreatureSet,
-        creature_choice: CreatureSet,
-    ) -> Self {
-        assert!(creature_choice.is_subset_of(hand));
-        assert_eq!(state.creature_choice_size(player), creature_choice.len());
-
-        let irl_hand = hand - creature_choice;
-        let graveyard = state.graveyard();
-        let hand_possibilites = !(graveyard);
-        let choice_possibilites = !(graveyard | irl_hand);
-
-        Self::encode_hand_contents(irl_hand, hand_possibilites)
-            .mix_subset(creature_choice, choice_possibilites)
-            .into()
+        phase: PhaseTag,
+    ) -> bool {
+        match phase {
+            PhaseTag::Main => false,
+            PhaseTag::Sabotage => true,
+            PhaseTag::Seer => player == state.forced_seer_player(),
+        }
     }
 
-    /// Inverse of `encode_sabotage_index`
-    ///
-    /// The return values are:
-    /// - the decoded hand
-    /// - the decoded creature choice
-    pub fn decode_sabotage_seer_index<S: KnownStateEssentials>(
+    pub fn encode<S: KnownStateEssentials>(state: &S, player: Player, info: EncodingInfo) -> Self {
+        let hand = info.get_main();
+        let hand_possibilites = !state.graveyard() - CreatureSet::opt_singleton(info.get_seer());
+        let irl_hand = hand - info.get_sabotage().unwrap_or_default();
+        let encoded_hand = irl_hand.encode_ones_relative_to(hand_possibilites);
+
+        if let Some((choice, revealed)) = info.get_post_main() {
+            assert!(choice.is_subset_of(hand));
+
+            match revealed {
+                Some(revealed) if player != state.forced_seer_player() => {
+                    assert_eq!(choice, CreatureSet::singleton(revealed));
+
+                    encoded_hand.into()
+                }
+                _ => {
+                    assert_eq!(choice.len(), state.creature_choice_size(player));
+
+                    encoded_hand
+                        .mix_subset(choice, hand_possibilites - irl_hand)
+                        .into()
+                }
+            }
+        } else {
+            encoded_hand.into()
+        }
+    }
+
+    pub fn decode<S: KnownStateEssentials>(
         self,
         state: &S,
         player: Player,
-    ) -> Option<(CreatureSet, CreatureSet)> {
-        let graveyard = state.graveyard();
-        let hand_size = state.post_main_hand_size(player);
+        info: PerPhaseInfo<(), (), Creature>,
+    ) -> Option<(CreatureSet, Option<CreatureSet>)> {
+        let hand_possibilites = !state.graveyard() - CreatureSet::opt_singleton(info.get_seer());
+        let self_contains_choice = Self::index_contains_choice(state, player, info.tag());
+
+        let irl_hand_size = state.hand_size_during(player, info.tag());
         let choice_size = state.creature_choice_size(player);
 
-        let max_choice_value = choose(
-            Creature::CREATURES.len() - graveyard.len() - hand_size, // length of `choice_possibilities`
-            choice_size,
-        );
+        let (encoded_hand, remaining) = if self_contains_choice {
+            let max_choice_value = choose(
+                hand_possibilites.len() - irl_hand_size, // length of `choice_possibilities`
+                choice_size,
+            );
 
-        let (remaining, encoded_choice) = self.0.unmix_ranged(max_choice_value)?;
-        let irl_hand = Self::decode_hand_contents(remaining, !graveyard, hand_size)?;
-        let creature_choice = CreatureSet::decode_ones_relative_to(
-            encoded_choice,
-            choice_size,
-            !(graveyard | irl_hand),
-        )?;
+            let (encoded_hand, remaining) = self.0.unmix_ranged(max_choice_value)?;
 
-        Some((irl_hand | creature_choice, creature_choice))
+            (encoded_hand, Some(remaining))
+        } else {
+            (self.0, None)
+        };
+
+        let irl_hand =
+            CreatureSet::decode_ones_relative_to(encoded_hand, irl_hand_size, hand_possibilites)?;
+
+        let choice = if let Some(remaining) = remaining {
+            let choice_possibilities = hand_possibilites - irl_hand;
+            let decoded =
+                CreatureSet::decode_ones_relative_to(remaining, choice_size, choice_possibilities)?;
+
+            Some(decoded)
+        } else {
+            info.get_seer().map(|c| CreatureSet::singleton(c))
+        };
+
+        Some((irl_hand | choice.unwrap_or_default(), choice))
     }
 
-    /// One more than the maximum value of `encode_sabotage_seer_index`
-    #[inline(always)]
-    pub fn sabotage_seer_index_count<S: KnownStateEssentials>(state: &S, player: Player) -> usize {
-        // Intuitively speaking:
-        // - We first pick the hand, giving us HP choose HS possibilities
-        // - We then pick the choice from the remaining HP - HS cards,
-        //   giving us (HP - HS) choose CL possibilities
-        let hand_possibilites = !(state.graveyard());
-        let hand_size = state.post_main_hand_size(player);
-        let hand_count = hand_possibilites.count_subsets_of_size(hand_size);
+    pub fn count<S: KnownStateEssentials>(state: &S, player: Player, phase: PhaseTag) -> usize {
+        let mut hand_possibility_count = (!state.graveyard()).len();
 
-        let choice_len = state.creature_choice_size(player);
-        let choice_count = choose(hand_possibilites.len() - hand_size, choice_len);
+        if phase == PhaseTag::Seer {
+            hand_possibility_count -= 1;
+        }
 
-        choice_count * hand_count
+        let hand_size = state.hand_size_during(player, phase);
+        let hand_count = choose(hand_possibility_count, hand_size);
+
+        let choice_count = if Self::index_contains_choice(state, player, phase) {
+            let choice_len = state.creature_choice_size(player);
+            let choice_count = choose(hand_possibility_count - hand_size, choice_len);
+
+            choice_count
+        } else {
+            1
+        };
+
+        hand_count * choice_count
     }
     // }}}
 }
-
+// }}}
 // {{{ Tests
 #[cfg(test)]
 mod tests {
@@ -177,64 +238,101 @@ mod tests {
     use std::assert_eq;
 
     // {{{ Main phase
-    // We test for only the first 100 hand/graveyard configurations
-    // (otherwise this would run too slow).
     #[test]
     fn hidden_encode_decode_main_inverses() {
-        // hand
-        for i in 0..=100 {
-            // graveyard
-            for j in 0..=100 {
-                // Make sure no cards from therhand are in the graveyard.
-                let i = i & !j;
-                // Construct bitfields
-                let graveyard = CreatureSet::new(j);
-                let hand = CreatureSet::new(i);
-                let encoded = HiddenIndex::encode_main_index(hand, graveyard);
+        for graveyard in Bitfield::members() {
+            let player = Player::Me;
+            let state = KnownStateSummary::new_all_edicts(graveyard, Some(player));
 
-                assert_eq!(encoded.decode_main_index(graveyard, hand.len()), Some(hand));
+            for hand in (!graveyard).subsets_of_size(state.hand_size()) {
+                let info = PerPhaseInfo::Main(hand);
+                let decoding_info = info.forget_main().forget_sabotage();
+                let encoded = HiddenIndex::encode(&state, player, info);
 
-                assert!(encoded.0 < HiddenIndex::main_index_count(hand.len(), graveyard));
+                assert_eq!(
+                    encoded.decode(&state, player, decoding_info),
+                    Some(info.get_pre_seer())
+                );
+
+                let count = HiddenIndex::count(&state, player, info.tag());
+
+                assert!(
+                    encoded.0 < count,
+                    "{} is bigger than the supposed count ({})",
+                    encoded.0,
+                    count
+                );
             }
         }
     }
     // }}}
-    // {{{ Sabotage & seer phases
+    // {{{ Sabotage phase
     #[test]
-    fn hidden_encode_decode_sabotage_seer_inverses_seer() {
-        // graveyard
-        for j in 0..=100 {
-            let graveyard = CreatureSet::new(j);
-            let player = Player::Me;
-            let state = KnownStateSummary::new(Default::default(), graveyard, Some(player));
+    fn hidden_encode_decode_sabotage_inverses() {
+        for graveyard in Bitfield::members() {
+            for seer_player in [None, Some(Player::Me), Some(Player::You)] {
+                let player = Player::Me;
+                let state = KnownStateSummary::new_all_edicts(graveyard, seer_player);
 
-            if state.hand_size() < 2 {
-                continue;
-            }
+                for hand in (!graveyard).subsets_of_size(state.hand_size()) {
+                    let choice_size = state.creature_choice_size(player);
 
-            // hand
-            for hand in (!graveyard).subsets_of_size(state.hand_size()) {
-                // Generate creature choice
-                for creature_choice in hand.subsets_of_size(2) {
-                    if !(creature_choice.is_disjoint_from(graveyard))
-                        || !(creature_choice.is_subset_of(hand))
-                    {
+                    if hand.len() < choice_size {
                         continue;
                     };
 
-                    let encoded = HiddenIndex::encode_sabotage_seer_index(
-                        &state,
-                        player,
-                        hand,
-                        creature_choice,
-                    );
+                    for choice in hand.subsets_of_size(choice_size) {
+                        let info = PerPhaseInfo::Sabotage(hand, choice);
+                        let decoding_info = info.forget_main().forget_sabotage();
+                        let encoded = HiddenIndex::encode(&state, player, info);
 
-                    assert_eq!(
-                        encoded.decode_sabotage_seer_index(&state, player),
-                        Some((hand, creature_choice))
-                    );
+                        assert_eq!(
+                            encoded.decode(&state, player, decoding_info),
+                            Some(info.get_pre_seer())
+                        );
 
-                    assert!(encoded.0 < HiddenIndex::sabotage_seer_index_count(&state, player));
+                        assert!(encoded.0 < HiddenIndex::count(&state, player, info.tag()));
+                    }
+                }
+            }
+        }
+    }
+    // }}}
+    // {{{ Seer phase
+    #[test]
+    fn hidden_encode_decode_seer_inverses() {
+        for graveyard in Bitfield::members() {
+            for seer_player in [None, Some(Player::Me), Some(Player::You)] {
+                let player = Player::Me;
+                let state = KnownStateSummary::new_all_edicts(graveyard, seer_player);
+
+                for hand in (!graveyard).subsets_of_size(state.hand_size()) {
+                    let choice_size = state.creature_choice_size(player);
+
+                    if hand.len() < choice_size {
+                        continue;
+                    };
+
+                    for choice in hand.subsets_of_size(choice_size) {
+                        let revealed_iter = if player == state.forced_seer_player() {
+                            (!(graveyard | hand)).into_iter()
+                        } else {
+                            choice.into_iter()
+                        };
+
+                        for revealed in revealed_iter {
+                            let info = PerPhaseInfo::Seer(hand, choice, revealed);
+                            let decoding_info = info.forget_main().forget_sabotage();
+                            let encoded = HiddenIndex::encode(&state, player, info);
+
+                            assert_eq!(
+                                encoded.decode(&state, player, decoding_info),
+                                Some(info.get_pre_seer())
+                            );
+
+                            assert!(encoded.0 < HiddenIndex::count(&state, player, info.tag()));
+                        }
+                    }
                 }
             }
         }

@@ -1,9 +1,14 @@
+use std::convert::TryInto;
+
 /// Const `n choose k` function.
 /// - tested for values smaller than 17.
 /// - fails when n=0 or n>=k.
 pub fn choose(n: usize, k: usize) -> usize {
-    assert!(n >= 1); // Our implementation doesn't handle 0 nicely
     assert!(n >= k);
+
+    if n == 0 {
+        return 1;
+    }
 
     let mut result: u64 = 1;
 
@@ -15,7 +20,7 @@ pub fn choose(n: usize, k: usize) -> usize {
         result /= i as u64;
     }
 
-    return result as usize;
+    result.try_into().unwrap()
 }
 
 #[cfg(test)]
