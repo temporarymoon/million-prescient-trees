@@ -11,8 +11,8 @@ pub trait MixRanged: Sized {
     fn unmix_ranged(self, max: usize) -> Option<(Self, usize)>;
 
     /// Mix in data about the index of some bit in a bitfield.
-    fn mix_indexof<T: Bitfield>(self, index: T::Element, possibilities: T) -> Self {
-        self.mix_ranged(possibilities.indexof(index), possibilities.len())
+    fn mix_indexof<T: Bitfield>(self, index: T::Element, possibilities: T) -> Option<Self> {
+        Some(self.mix_ranged(possibilities.indexof(index)?, possibilities.len()))
     }
 
     /// Inverse of `mix_indeox`

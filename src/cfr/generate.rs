@@ -21,7 +21,7 @@ pub struct GenerationStats {
 
 impl GenerationStats {
     pub fn total(&self) -> PhaseStats {
-        self.phase_stats.iter().copied().sum()
+        self.phase_stats.into_iter().sum()
     }
 }
 

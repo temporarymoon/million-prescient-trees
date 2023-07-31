@@ -57,6 +57,8 @@ impl Player {
     /// ```
     /// pair.0 ==    player.select(player.order_as(pair))
     /// pair.1 == (!player).select(player.order_as(pair))
+    /// player.select(pair)    == player.order_as(pair).0
+    /// (!player).select(pair) == player.order_as(pair).1
     /// ```
     #[inline(always)]
     pub fn order_as<T: Copy>(self, pair: Pair<T>) -> Pair<T> {

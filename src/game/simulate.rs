@@ -600,7 +600,7 @@ mod tests {
         let unfinished = ctx.advance_known_state().1.get_unfinished().unwrap();
         let has_effects = unfinished
             .player_states
-            .iter()
+            .into_iter()
             .all(|s| s.effects.has(effect));
 
         assert!(has_effects);

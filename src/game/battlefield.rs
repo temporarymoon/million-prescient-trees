@@ -83,7 +83,7 @@ impl Battlefields {
 
     /// Returns whether a given battlefield will ever be active
     pub fn will_be_active(&self, battlefield: Battlefield) -> bool {
-        self.active().iter().find(|b| **b == battlefield).is_some()
+        self.active().into_iter().find(|b| **b == battlefield).is_some()
     }
 }
 // }}}

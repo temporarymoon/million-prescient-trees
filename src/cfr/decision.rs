@@ -204,9 +204,9 @@ impl<'a> DecisionMatrices<'a> {
             ))
         } else {
             let matrices = hidden_counts
-                .iter()
+                .into_iter()
                 .zip(decision_counts)
-                .map(|(hidden, decision)| DecisionMatrix::new(*hidden, decision, allocator))
+                .map(|(hidden, decision)| DecisionMatrix::new(hidden, decision, allocator))
                 .next_chunk()
                 .unwrap();
 
@@ -226,9 +226,9 @@ impl<'a> DecisionMatrices<'a> {
             DecisionMatrix::estimate_alloc(hidden_counts[0], decision_counts[0])
         } else {
             hidden_counts
-                .iter()
+                .into_iter()
                 .zip(decision_counts)
-                .map(|(hidden, decision)| DecisionMatrix::estimate_alloc(*hidden, decision))
+                .map(|(hidden, decision)| DecisionMatrix::estimate_alloc(hidden, decision))
                 .sum()
         }
     }
@@ -245,10 +245,10 @@ impl<'a> DecisionMatrices<'a> {
             DecisionMatrix::estimate_weight_storage(hidden_counts[0], decision_counts[0])
         } else {
             hidden_counts
-                .iter()
+                .into_iter()
                 .zip(decision_counts)
                 .map(|(hidden, decision)| {
-                    DecisionMatrix::estimate_weight_storage(*hidden, decision)
+                    DecisionMatrix::estimate_weight_storage(hidden, decision)
                 })
                 .sum()
         }

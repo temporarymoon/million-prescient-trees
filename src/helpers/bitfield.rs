@@ -120,10 +120,10 @@ pub trait Bitfield: Sized + Copy + Binary + Into<Self::Representation>
     /// indexof(0b0101, 2) // 1
     /// indexof(0b0111, 2) // 2
     /// ```
-    fn indexof(self, target: Self::Element) -> usize;
+    fn indexof(self, target: Self::Element) -> Option<usize>;
 
     /// Similar to `indexof`, but accepts integers instead of `$element`.
-    fn indexof_raw(self, target: usize) -> usize;
+    fn indexof_raw(self, target: usize) -> Option<usize>;
 
     /// Returns the position (starting from the end) of the nth bit.
     ///
@@ -164,8 +164,8 @@ pub trait Bitfield: Sized + Copy + Binary + Into<Self::Representation>
         assert!(self.is_subset_of(other));
 
         for i in 0..Self::BITS {
-            if self.has_raw(i) {
-                result.add(other.indexof_raw(i))
+            if let Some(index) = other.indexof_raw(i) {
+                result.add(index);
             }
         }
 
@@ -323,12 +323,16 @@ macro_rules! make_bitfield {
             }
 
             #[inline(always)]
-            fn indexof(self, target: $element) -> usize {
+            fn indexof(self, target: $element) -> Option<usize> {
                 self.indexof_raw(target as usize)
             }
 
-            fn indexof_raw(self, target: usize) -> usize {
-                (self.0 & ((1 << (target as $repr)) - 1)).count_ones() as usize
+            fn indexof_raw(self, target: usize) -> Option<usize> {
+                if self.has_raw(target) {
+                    Some((self.0 & ((1 << (target as $repr)) - 1)).count_ones() as usize)
+                } else {
+                    None
+                }
             }
         }
         // }}}
@@ -859,10 +863,10 @@ mod tests {
 
     #[test]
     fn indexof_examples() {
-        assert_eq!(Bitfield16::new(0b0100).indexof(2), 0);
-        assert_eq!(Bitfield16::new(0b0101).indexof(2), 1);
-        assert_eq!(Bitfield16::new(0b0110).indexof(2), 1);
-        assert_eq!(Bitfield16::new(0b0111).indexof(2), 2);
+        assert_eq!(Bitfield16::new(0b0100).indexof(2), Some(0));
+        assert_eq!(Bitfield16::new(0b0101).indexof(2), Some(1));
+        assert_eq!(Bitfield16::new(0b0110).indexof(2), Some(1));
+        assert_eq!(Bitfield16::new(0b0111).indexof(2), Some(2));
     }
 
     #[test]
@@ -884,8 +888,8 @@ mod tests {
             for j in 0..16 {
                 let bitfield = Bitfield16::new(i);
 
-                if bitfield.has(j) {
-                    for index in 0..bitfield.indexof(j) {
+                if let Some(index) = bitfield.indexof(j) {
+                    for index in 0..index {
                         assert!(bitfield.index(index).is_some())
                     }
                 }
@@ -899,8 +903,8 @@ mod tests {
             for j in 0..16 {
                 let bitfield = Bitfield16::new(i);
 
-                if bitfield.has(j) {
-                    assert_eq!(Some(j), bitfield.index(bitfield.indexof(j)))
+                if let Some(index) = bitfield.indexof(j) {
+                    assert_eq!(Some(j), bitfield.index(index))
                 }
             }
         }

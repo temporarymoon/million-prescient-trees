@@ -16,8 +16,8 @@ use derive_more::{Add, AddAssign, Sum};
 use indicatif::HumanBytes;
 use itertools::Itertools;
 use std::fmt::Debug;
+use std::format;
 use std::mem::size_of;
-use std::{format, todo};
 
 // {{{ Phase tags
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -106,10 +106,14 @@ pub trait Phase: Sync {
 
     fn advance_hidden_indices(
         &self,
-        state: &KnownStateSummary,
+        state: KnownStateSummary,
         hidden: Pair<hidden_index::HiddenState>,
         decisions: Pair<DecisionIndex>,
-    ) -> Option<(Pair<hidden_index::EncodingInfo>, RevealIndex)>;
+    ) -> Option<(
+        KnownStateSummary,
+        Pair<hidden_index::EncodingInfo>,
+        RevealIndex,
+    )>;
 }
 // }}}
 // {{{ Phase instances
@@ -182,14 +186,18 @@ impl Phase for MainPhase {
 
     fn advance_hidden_indices(
         &self,
-        state: &KnownStateSummary,
+        state: KnownStateSummary,
         hidden: Pair<hidden_index::HiddenState>,
         decisions: Pair<DecisionIndex>,
-    ) -> Option<(Pair<hidden_index::EncodingInfo>, RevealIndex)> {
+    ) -> Option<(
+        KnownStateSummary,
+        Pair<hidden_index::EncodingInfo>,
+        RevealIndex,
+    )> {
         let (creature_choices, edicts) = Player::PLAYERS
             .try_map(|player| {
                 player.select(decisions).decode_main_phase_index(
-                    state,
+                    &state,
                     player,
                     player.select(hidden).hand,
                 )
@@ -200,9 +208,9 @@ impl Phase for MainPhase {
             PerPhaseInfo::Sabotage(player.select(hidden).hand, player.select(creature_choices))
         });
 
-        let reveal_index = RevealIndex::encode_main_phase_reveal(edicts, state.edict_sets());
+        let reveal_index = RevealIndex::encode_main_phase_reveal(edicts, state.edict_sets())?;
 
-        Some((hidden_info, reveal_index))
+        Some((state, hidden_info, reveal_index))
     }
 }
 // }}}
@@ -288,13 +296,17 @@ impl Phase for SabotagePhase {
 
     fn advance_hidden_indices(
         &self,
-        state: &KnownStateSummary,
+        state: KnownStateSummary,
         hidden: Pair<hidden_index::HiddenState>,
         decisions: Pair<DecisionIndex>,
-    ) -> Option<(Pair<hidden_index::EncodingInfo>, RevealIndex)> {
+    ) -> Option<(
+        KnownStateSummary,
+        Pair<hidden_index::EncodingInfo>,
+        RevealIndex,
+    )> {
         let guesses = Player::PLAYERS.try_map(|player| {
             player.select(decisions).decode_sabotage_index(
-                state,
+                &state,
                 player.select(hidden).hand,
                 self.sabotage_status(player),
             )
@@ -320,9 +332,9 @@ impl Phase for SabotagePhase {
             state.forced_seer_player(),
             revealed,
             state.graveyard(),
-        );
+        )?;
 
-        Some((hidden_info, reveal_index))
+        Some((state, hidden_info, reveal_index))
     }
 }
 // }}}
@@ -363,10 +375,9 @@ impl Phase for SeerPhase {
     }
 
     fn decision_counts(&self, state: &KnownState) -> Pair<usize> {
-        let seer_player_decisions = if state.seer_is_active() { 2 } else { 1 };
         state
-            .forced_seer_player()
-            .order_as([seer_player_decisions, 1])
+            .seer_statuses()
+            .map(|status| if status { 2 } else { 1 })
     }
 
     fn reveal_count(&self, state: &KnownState) -> usize {
@@ -385,9 +396,9 @@ impl Phase for SeerPhase {
         let main_choices = state
             .forced_seer_player()
             .order_as([seer_player_creature, self.revealed_creature])
-            .iter()
+            .into_iter()
             .zip(self.edict_choices)
-            .map(|(creatures, edict)| FinalMainPhaseChoice::new(*creatures, edict))
+            .map(|(creatures, edict)| FinalMainPhaseChoice::new(creatures, edict))
             .attempt_collect()
             .unwrap();
 
@@ -435,11 +446,72 @@ impl Phase for SeerPhase {
 
     fn advance_hidden_indices(
         &self,
-        _state: &KnownStateSummary,
-        _hidden: Pair<hidden_index::HiddenState>,
-        _decisions: Pair<DecisionIndex>,
-    ) -> Option<(Pair<hidden_index::EncodingInfo>, RevealIndex)> {
-        todo!()
+        state: KnownStateSummary,
+        hidden: Pair<hidden_index::HiddenState>,
+        decisions: Pair<DecisionIndex>,
+    ) -> Option<(
+        KnownStateSummary,
+        Pair<hidden_index::EncodingInfo>,
+        RevealIndex,
+    )> {
+        let choices = hidden.try_map(|h| h.choice)?;
+        let final_choices = Player::PLAYERS.try_map(|player| {
+            player
+                .select(decisions)
+                .decode_seer_index(player.select(choices))
+        })?;
+
+        let hidden_info = Player::PLAYERS.try_map(|player| {
+            let hand = player.select(hidden).hand;
+            let final_choice = player.select(final_choices);
+
+            Some(PerPhaseInfo::Main(hand - final_choice))
+        })?;
+
+        let reveal_index = RevealIndex::encode_seer_phase_reveal(
+            state.forced_seer_player().select(final_choices),
+            state.graveyard(),
+        )?;
+
+        let graveyard = {
+            let mut result = state.graveyard;
+
+            for creature in final_choices {
+                result.add(creature);
+            }
+
+            result
+        };
+
+        let edicts = Player::PLAYERS.map(|player| {
+            let mut result = state.player_edicts(player);
+
+            let [my_creature, your_creature] = player.order_as(final_choices);
+
+            if my_creature == Creature::Steward && your_creature != Creature::Witch {
+                result.fill();
+            } else {
+                result.remove(player.select(self.edict_choices));
+            };
+
+            result
+        });
+
+        let seer_player = Player::PLAYERS
+            .into_iter()
+            .filter(|player| {
+                let [my_creature, your_creature] = player.order_as(final_choices);
+
+                my_creature == Creature::Seer
+                    && your_creature != Creature::Witch
+                    && your_creature != Creature::Rogue
+            })
+            .exactly_one()
+            .ok();
+
+        let new_state = KnownStateSummary::new(edicts, graveyard, seer_player);
+
+        Some((new_state, hidden_info, reveal_index))
     }
 }
 // }}}

@@ -21,10 +21,12 @@ impl DecisionIndex {
         hand: CreatureSet,
         creatures: CreatureSet,
         edict: Edict,
-    ) -> DecisionIndex {
+    ) -> Option<DecisionIndex> {
         let creature_choice = creatures.encode_ones_relative_to(hand);
 
-        DecisionIndex(creature_choice.mix_indexof(edict, state.player_edicts(player)))
+        Some(DecisionIndex(
+            creature_choice.mix_indexof(edict, state.player_edicts(player))?,
+        ))
     }
 
     /// Decodes a main phase user choice into a decision index.
@@ -119,31 +121,18 @@ impl DecisionIndex {
     // {{{ Seer phase
     /// Encodes a decision we can take during the seer phase.
     /// Assumes we know the hidden information of the current player.
-    pub fn encode_seer_index(played_cards: (Creature, Creature), choice: Creature) -> Option<Self> {
-        if choice == played_cards.0 {
-            Some(Self(0))
-        } else if choice == played_cards.1 {
-            Some(Self(1))
-        } else {
-            None
-        }
+    pub fn encode_seer_index(creatures: CreatureSet, choice: Creature) -> Option<Self> {
+        creatures.indexof(choice).map(Self)
     }
 
     /// Inverse of `encode_seer_index`.
-    pub fn decode_seer_index(self, played_cards: (Creature, Creature)) -> Option<Creature> {
-        if self.0 == 0 {
-            Some(played_cards.0)
-        } else if self.0 == 1 {
-            Some(played_cards.1)
-        } else {
-            None
-        }
+    pub fn decode_seer_index(self, creatures: CreatureSet) -> Option<Creature> {
+        creatures.index(self.0)
     }
 
-    /// One more than the maximum value of `encode_seer_index`.
-    #[inline(always)]
-    pub fn seer_phase_index_count() -> usize {
-        2
+    /// One more than the maximum value of `encode-seer_index`
+    pub fn seer_index_count(creatures: CreatureSet) -> usize {
+        creatures.len()
     }
     // }}}
 }
@@ -191,7 +180,8 @@ mod tests {
                         {
                             let encoded = DecisionIndex::encode_main_phase_index(
                                 &state, player, hand, creatures, edict,
-                            );
+                            )
+                            .unwrap();
 
                             let decoded = encoded.decode_main_phase_index(&state, player, hand);
                             let count = DecisionIndex::main_phase_index_count(&state, player);
@@ -252,28 +242,26 @@ mod tests {
     // {{{ Seer phase
     #[test]
     fn encode_decode_seer_inverses() {
-        for first in Creature::CREATURES {
-            for second in Creature::CREATURES {
-                if first == second {
-                    continue;
-                }
+        let pairs = CreatureSet::all().subsets_of_size(2);
+        let single = CreatureSet::all().subsets_of_size(1);
 
-                let played = (first, second);
+        for creatures in pairs.chain(single) {
+            for result in Creature::CREATURES {
+                let expected = if creatures.has(result) {
+                    Some(result)
+                } else {
+                    None
+                };
 
-                for result in Creature::CREATURES {
-                    let expected = if result == first || result == second {
-                        Some(result)
-                    } else {
-                        None
-                    };
+                let encoded = DecisionIndex::encode_seer_index(creatures, result);
 
-                    let encoded = DecisionIndex::encode_seer_index(played, result);
+                assert_eq!(
+                    encoded.and_then(|e| e.decode_seer_index(creatures)),
+                    expected
+                );
 
-                    assert_eq!(encoded.and_then(|e| e.decode_seer_index(played)), expected);
-
-                    if let Some(encoded) = encoded {
-                        assert!(encoded.0 < DecisionIndex::seer_phase_index_count());
-                    }
+                if let Some(encoded) = encoded {
+                    assert!(encoded.0 < DecisionIndex::seer_index_count(creatures));
                 }
             }
         }

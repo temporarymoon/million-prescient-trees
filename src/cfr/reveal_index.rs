@@ -15,12 +15,12 @@ pub struct RevealIndex(pub usize);
 impl RevealIndex {
     // {{{ Main phase
     #[inline(always)]
-    pub fn encode_main_phase_reveal(choices: Pair<Edict>, edicts: Pair<EdictSet>) -> Self {
+    pub fn encode_main_phase_reveal(choices: Pair<Edict>, edicts: Pair<EdictSet>) -> Option<Self> {
         let index = edicts[1]
-            .indexof(choices[1])
-            .mix_indexof(choices[0], edicts[0]);
+            .indexof(choices[1])?
+            .mix_indexof(choices[0], edicts[0])?;
 
-        Self(index)
+        Some(Self(index))
     }
 
     #[inline(always)]
@@ -45,7 +45,7 @@ impl RevealIndex {
         seer_player: Player,
         revealed_creature: Creature,
         graveyard: CreatureSet,
-    ) -> Self {
+    ) -> Option<Self> {
         let possibilities = !graveyard; // Pool of choices for sabotage guesses
         let mut revealed_creature_possibilities = possibilities;
 
@@ -61,16 +61,16 @@ impl RevealIndex {
             revealed_creature_possibilities.remove(sabotaged_by_non_seer);
         };
 
-        let mut result = revealed_creature_possibilities.indexof(revealed_creature);
+        let mut result = revealed_creature_possibilities.indexof(revealed_creature)?;
 
         for player in Player::PLAYERS {
             if let Some(sabotaged) = player.select(sabotage_choices) {
                 assert!(!graveyard.has(sabotaged), "Cannot sabotage a dead creature");
-                result = result.mix_indexof(sabotaged, possibilities);
+                result = result.mix_indexof(sabotaged, possibilities)?;
             }
         }
 
-        Self(result)
+        Some(Self(result))
     }
 
     /// Inverse of `encode_sabotage_phase_reveal`.
@@ -84,7 +84,7 @@ impl RevealIndex {
         let mut encoded = self.0;
         let mut sabotage_choices = [None; 2];
 
-        for player in Player::PLAYERS.iter().rev() {
+        for player in Player::PLAYERS.into_iter().rev() {
             if player.select(sabotage_statuses) {
                 let (remaining, sabotaged) = encoded.unmix_indexof(possibilities)?;
                 encoded = remaining;
@@ -140,8 +140,8 @@ impl RevealIndex {
     // }}}
     // {{{ Seer phase
     #[inline(always)]
-    pub fn encode_seer_phase_reveal(creature: Creature, graveyard: CreatureSet) -> Self {
-        Self((!graveyard).indexof(creature))
+    pub fn encode_seer_phase_reveal(creature: Creature, graveyard: CreatureSet) -> Option<Self> {
+        Some(Self((!graveyard).indexof(creature)?))
     }
 
     #[inline(always)]
@@ -210,7 +210,8 @@ mod tests {
                                         seer_player,
                                         revealed_creature,
                                         graveyard,
-                                    );
+                                    )
+                                    .unwrap();
 
                                     let count = RevealIndex::sabotage_phase_count(
                                         [first_sabotage_status, second_sabotage_status],

@@ -114,7 +114,7 @@ impl KnownState {
         let mut max_opponent_gain = self
             .battlefields
             .active()
-            .iter()
+            .into_iter()
             .map(|battlefield| battlefield.reward())
             .sum::<u8>() as i8
             + rtp_usages;
