@@ -7,6 +7,7 @@ use crate::{
 };
 
 // {{{ Essentials trait
+/// Trait representing operations which can be performed on both `KnownStateSummary` and `KnownState`.
 pub trait KnownStateEssentials {
     /// This function is assumed to be pure.
     fn graveyard(&self) -> CreatureSet;
@@ -41,7 +42,7 @@ pub trait KnownStateEssentials {
         }
     }
 
-    /// Computes the size of the hand in the current state.
+    /// Computes the size of both players' hands at the start of the turn.
     #[inline(always)]
     fn hand_size(&self) -> usize {
         5 - self.graveyard().len() / 2
@@ -53,7 +54,7 @@ pub trait KnownStateEssentials {
         self.hand_size() - UserCreatureChoice::len_from_status(self.seer_player() == Some(player))
     }
 
-    /// Computes the size of the hand in a non-main phase.
+    /// Computes the size of the hand in a given phase.
     #[inline(always)]
     fn hand_size_during(&self, player: Player, phase: PhaseTag) -> usize {
         if phase == PhaseTag::Main {

@@ -695,6 +695,10 @@ pub mod const_size_codec {
         LOOKUP_TABLES.2[ones]
     }
 
+    /// Represents a bitfield, after all information about the number of ones
+    /// has been removed.
+    pub type Encoded = usize;
+
     pub trait ConstSizeCodec: Bitfield  {
         /// Efficiently assume the number of ones in the bit
         /// representation of a number is known, removing such
@@ -703,14 +707,14 @@ pub mod const_size_codec {
         /// The result fits inside an u16,
         /// but we pass around an `usize` for convenience.
         #[inline(always)]
-        fn encode_ones(self) -> usize {
+        fn encode_ones(self) -> Encoded {
             assert!(Self::BITS <= 16);
 
             LOOKUP_TABLES.0[self.into().into()] as usize
         }
 
         /// Inverse of `encode_ones`.
-        fn decode_ones(encoded: usize, ones: usize) -> Option<Self> {
+        fn decode_ones(encoded: Encoded, ones: usize) -> Option<Self> {
             assert!(Self::BITS <= 16);
 
             if encoded >= count_with_n_ones(ones) {
@@ -726,13 +730,13 @@ pub mod const_size_codec {
 
         /// Combination of `encode_ones` chained onto `encode_relative_to`
         #[inline(always)]
-        fn encode_ones_relative_to(self, other: Self) -> usize {
+        fn encode_ones_relative_to(self, other: Self) -> Encoded {
             self.encode_relative_to(other).encode_ones()
         }
 
         /// Inverse of `encode_ones_relative_to`
         #[inline(always)]
-        fn decode_ones_relative_to(encoded: usize, ones: usize, other: Self) -> Option<Self> {
+        fn decode_ones_relative_to(encoded: Encoded, ones: usize, other: Self) -> Option<Self> {
             let encoded = Self::IndexBitfield::decode_ones(encoded, ones)?;
             Self::decode_relative_to(encoded, other)
         }

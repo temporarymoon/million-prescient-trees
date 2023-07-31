@@ -93,10 +93,10 @@ pub trait Phase: Sync {
     ) -> TurnResult<(Self::Next, KnownState)>;
 
     fn decision_counts(&self, state: &KnownState) -> Pair<usize>;
+    fn reveal_count(&self, state: &KnownState) -> usize;
     fn hidden_counts(&self, state: &KnownState) -> Pair<usize> {
         Player::PLAYERS.map(|player| HiddenIndex::count(state, player, Self::TAG))
     }
-    fn reveal_count(&self, state: &KnownState) -> usize;
 
     fn valid_hidden_states(
         &self,

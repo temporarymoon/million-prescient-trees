@@ -108,7 +108,7 @@ impl RevealIndex {
 
     pub fn sabotage_phase_count(
         sabotage_statuses: Pair<bool>,
-        seer_player: Player,
+        forced_seer_player: Player,
         graveyard: CreatureSet,
     ) -> usize {
         // How many times the sabotage card was played this turn
@@ -122,7 +122,7 @@ impl RevealIndex {
 
         let mut reveal_possibilities = (!graveyard).len();
 
-        if (!seer_player).select(sabotage_statuses) {
+        if (!forced_seer_player).select(sabotage_statuses) {
             reveal_possibilities -= 1;
         };
 

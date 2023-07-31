@@ -1,3 +1,5 @@
+use itertools::Itertools;
+
 use crate::{
     game::{
         creature::{Creature, CreatureSet},
@@ -5,7 +7,7 @@ use crate::{
         edict::{Edict, EdictSet},
     },
     helpers::{
-        bitfield::{Bitfield, Bitfield16, const_size_codec::ConstSizeCodec},
+        bitfield::{const_size_codec::ConstSizeCodec, Bitfield, Bitfield16},
         choose::choose,
         ranged::MixRanged,
     },
@@ -13,7 +15,7 @@ use crate::{
 
 /// Used to index decision vectors.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
-pub struct DecisionIndex(pub usize);
+pub struct DecisionIndex(usize);
 
 impl DecisionIndex {
     // {{{ Main phase
@@ -94,9 +96,10 @@ impl DecisionIndex {
     ) -> Option<Creature> {
         let possibilities = Self::sabotage_decision_possibilities(hand, choice, graveyard);
 
-        CreatureSet::decode_relative_to(Bitfield16::decode_ones(self.0, 1)?, possibilities)?
+        CreatureSet::decode_ones_relative_to(self.0, 1, possibilities)?
             .into_iter()
-            .next()
+            .exactly_one()
+            .ok()
     }
 
     /// One more than the maximum value of `encode_sabotage_phase_index`, but using the pre-main

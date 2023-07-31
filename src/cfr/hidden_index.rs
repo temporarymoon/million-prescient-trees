@@ -106,14 +106,23 @@ impl<A, B, C> PerPhaseInfo<A, B, C> {
 // }}}
 // {{{ HiddenIndex
 /// Encodes all hidden information known by a player.
-///
-/// *Important semantics*:
-/// - the creature choice must not be in the hand during the sabotage/seer phase
-/// - revealing a creature instantly adds it to the graveyard as well.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
-pub struct HiddenIndex(pub usize);
+pub struct HiddenIndex(usize);
 
+/// Information required for creating a hidden index:
+/// - The creatures in hand
+/// - (optionally) the creatures chosen this turn
+/// - (optionally) the creature revealed at the end of the sabotage step
 pub type EncodingInfo = PerPhaseInfo<CreatureSet, CreatureSet, Creature>;
+
+/// Information required for decoding a hidden index:
+/// - (optionally) the creature revealed at the end of the sabotage step
+pub type DecodingInfo = PerPhaseInfo<(), (), Creature>;
+
+/// Hidden info known by a player:
+/// - The creatures in hand
+/// - The creatures chosen this turn
+pub type HiddenState = (CreatureSet, Option<CreatureSet>);
 
 impl From<usize> for HiddenIndex {
     fn from(value: usize) -> Self {
@@ -169,8 +178,8 @@ impl HiddenIndex {
         self,
         state: &S,
         player: Player,
-        info: PerPhaseInfo<(), (), Creature>,
-    ) -> Option<(CreatureSet, Option<CreatureSet>)> {
+        info: DecodingInfo,
+    ) -> Option<HiddenState> {
         let hand_possibilites = !state.graveyard() - CreatureSet::opt_singleton(info.get_seer());
         let self_contains_choice = Self::index_contains_choice(state, player, info.tag());
 
@@ -243,6 +252,7 @@ mod tests {
         for graveyard in Bitfield::members() {
             let player = Player::Me;
             let state = KnownStateSummary::new_all_edicts(graveyard, Some(player));
+            let mut found_max = false;
 
             for hand in (!graveyard).subsets_of_size(state.hand_size()) {
                 let info = PerPhaseInfo::Main(hand);
@@ -262,7 +272,13 @@ mod tests {
                     encoded.0,
                     count
                 );
+
+                if encoded.0 + 1 == count {
+                    found_max = true;
+                }
             }
+
+            assert!(found_max);
         }
     }
     // }}}
@@ -273,14 +289,14 @@ mod tests {
             for seer_player in [None, Some(Player::Me), Some(Player::You)] {
                 let player = Player::Me;
                 let state = KnownStateSummary::new_all_edicts(graveyard, seer_player);
+                let choice_size = state.creature_choice_size(player);
+                let mut found_max = false;
+
+                if state.hand_size() < choice_size {
+                    continue;
+                };
 
                 for hand in (!graveyard).subsets_of_size(state.hand_size()) {
-                    let choice_size = state.creature_choice_size(player);
-
-                    if hand.len() < choice_size {
-                        continue;
-                    };
-
                     for choice in hand.subsets_of_size(choice_size) {
                         let info = PerPhaseInfo::Sabotage(hand, choice);
                         let decoding_info = info.forget_main().forget_sabotage();
@@ -291,9 +307,17 @@ mod tests {
                             Some(info.get_pre_seer())
                         );
 
-                        assert!(encoded.0 < HiddenIndex::count(&state, player, info.tag()));
+                        let count = HiddenIndex::count(&state, player, info.tag());
+
+                        assert!(encoded.0 < count);
+
+                        if encoded.0 + 1 == count {
+                            found_max = true;
+                        }
                     }
                 }
+
+                assert!(found_max);
             }
         }
     }
@@ -305,10 +329,14 @@ mod tests {
             for seer_player in [None, Some(Player::Me), Some(Player::You)] {
                 let player = Player::Me;
                 let state = KnownStateSummary::new_all_edicts(graveyard, seer_player);
+                let choice_size = state.creature_choice_size(player);
+                let mut found_max = false;
+
+                if state.hand_size() < choice_size {
+                    continue;
+                };
 
                 for hand in (!graveyard).subsets_of_size(state.hand_size()) {
-                    let choice_size = state.creature_choice_size(player);
-
                     if hand.len() < choice_size {
                         continue;
                     };
@@ -330,10 +358,18 @@ mod tests {
                                 Some(info.get_pre_seer())
                             );
 
-                            assert!(encoded.0 < HiddenIndex::count(&state, player, info.tag()));
+                            let count = HiddenIndex::count(&state, player, info.tag());
+
+                            assert!(encoded.0 < count);
+
+                            if encoded.0 + 1 == count {
+                                found_max = true;
+                            }
                         }
                     }
                 }
+
+                assert!(found_max);
             }
         }
     }
