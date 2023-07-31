@@ -104,11 +104,7 @@ impl<A, B, C> PerPhaseInfo<A, B, C> {
     }
 }
 // }}}
-// {{{ HiddenIndex
-/// Encodes all hidden information known by a player.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
-pub struct HiddenIndex(usize);
-
+// {{{ Helper types
 /// Information required for creating a hidden index:
 /// - The creatures in hand
 /// - (optionally) the creatures chosen this turn
@@ -122,13 +118,32 @@ pub type DecodingInfo = PerPhaseInfo<(), (), Creature>;
 /// Hidden info known by a player:
 /// - The creatures in hand
 /// - The creatures chosen this turn
-pub type HiddenState = (CreatureSet, Option<CreatureSet>);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HiddenState {
+    pub hand: CreatureSet,
+    pub choice: Option<CreatureSet>,
+}
 
-impl From<usize> for HiddenIndex {
-    fn from(value: usize) -> Self {
-        Self(value)
+impl HiddenState {
+    pub fn new(hand: CreatureSet, choice: Option<CreatureSet>) -> Self {
+        Self { hand, choice }
+    }
+
+    /// Convers data required for creating a hidden index into
+    /// `Self` (the data returned from decoding a hidden index).
+    ///
+    /// This is very useful for testing.
+    pub fn from_encoding_info(info: EncodingInfo) -> Self {
+        let (hand, choice) = info.get_pre_seer();
+        Self { hand, choice }
     }
 }
+
+// }}}
+// {{{ HiddenIndex
+/// Encodes all hidden information known by a player.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
+pub struct HiddenIndex(usize);
 
 impl HiddenIndex {
     // {{{ Codec
@@ -212,7 +227,10 @@ impl HiddenIndex {
             info.get_seer().map(|c| CreatureSet::singleton(c))
         };
 
-        Some((irl_hand | choice.unwrap_or_default(), choice))
+        Some(HiddenState::new(
+            irl_hand | choice.unwrap_or_default(),
+            choice,
+        ))
     }
 
     pub fn count<S: KnownStateEssentials>(state: &S, player: Player, phase: PhaseTag) -> usize {
@@ -238,6 +256,13 @@ impl HiddenIndex {
     }
     // }}}
 }
+
+impl From<usize> for HiddenIndex {
+    fn from(value: usize) -> Self {
+        Self(value)
+    }
+}
+
 // }}}
 // {{{ Tests
 #[cfg(test)]
@@ -261,7 +286,7 @@ mod tests {
 
                 assert_eq!(
                     encoded.decode(&state, player, decoding_info),
-                    Some(info.get_pre_seer())
+                    Some(HiddenState::from_encoding_info(info))
                 );
 
                 let count = HiddenIndex::count(&state, player, info.tag());
@@ -304,7 +329,7 @@ mod tests {
 
                         assert_eq!(
                             encoded.decode(&state, player, decoding_info),
-                            Some(info.get_pre_seer())
+                            Some(HiddenState::from_encoding_info(info))
                         );
 
                         let count = HiddenIndex::count(&state, player, info.tag());
@@ -355,7 +380,7 @@ mod tests {
 
                             assert_eq!(
                                 encoded.decode(&state, player, decoding_info),
-                                Some(info.get_pre_seer())
+                                Some(HiddenState::from_encoding_info(info))
                             );
 
                             let count = HiddenIndex::count(&state, player, info.tag());
