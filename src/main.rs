@@ -60,8 +60,8 @@ fn simple_generation(from: usize, turns: usize, generate: bool) {
     state.battlefields.all[3 - from] = Battlefield::LastStrand;
 
     for i in 0..from {
-        state.graveyard.add(Creature::CREATURES[2 * i]);
-        state.graveyard.add(Creature::CREATURES[2 * i + 1]);
+        state.graveyard.insert(Creature::CREATURES[2 * i]);
+        state.graveyard.insert(Creature::CREATURES[2 * i + 1]);
     }
 
     let generator = GenerationContext::new(turns, state, &allocator);

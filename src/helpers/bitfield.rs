@@ -66,10 +66,10 @@ pub trait Bitfield: Sized + Copy + Binary + Into<Self::Representation>
     /// ```
     /// add(0b0100, 1) // 0b0110
     /// ```
-    fn add(&mut self, index: Self::Element);
+    fn insert(&mut self, index: Self::Element);
 
     /// Similar to `add`, but accepts integers instead of `$element`.
-    fn add_raw(&mut self, index: usize);
+    fn insert_raw(&mut self, index: usize);
 
     /// Removes a bit from a bitfield.
     /// Errors out if the bit is already there.
@@ -83,7 +83,7 @@ pub trait Bitfield: Sized + Copy + Binary + Into<Self::Representation>
     /// Moves an element from `self` to some other bitfield.
     fn move_one(&mut self, to: &mut Self, bit: Self::Element) {
         self.remove(bit);
-        to.add(bit);
+        to.insert(bit);
     }
 
     /// Sets all bits to one.
@@ -164,8 +164,8 @@ pub trait Bitfield: Sized + Copy + Binary + Into<Self::Representation>
         assert!(self.is_subset_of(other));
 
         for i in 0..Self::BITS {
-            if let Some(index) = other.indexof_raw(i) {
-                result.add(index);
+            if self.has_raw(i) {
+                result.insert(other.indexof_raw(i).unwrap());
             }
         }
 
@@ -178,7 +178,7 @@ pub trait Bitfield: Sized + Copy + Binary + Into<Self::Representation>
 
         for i in 0..Self::BITS {
             if encoded.has_raw(i) {
-                result.add_raw(other.index_raw(i as usize)?);
+                result.insert_raw(other.index_raw(i as usize)?);
             }
         }
 
@@ -284,7 +284,7 @@ macro_rules! make_bitfield {
                 ((self.0 >> (index as $repr)) & 1) != 0
             }
 
-            fn add(&mut self, index: $element) {
+            fn insert(&mut self, index: $element) {
                 if self.has(index) {
                     panic!(
                         "Trying to add index {} that is already present in {:b}",
@@ -295,7 +295,7 @@ macro_rules! make_bitfield {
                 self.0 |= 1 << (index as $repr);
             }
 
-            fn add_raw(&mut self, index: usize) {
+            fn insert_raw(&mut self, index: usize) {
                 if self.has_raw(index) {
                     panic!(
                         "Trying to add index {} that is already present in {:b}",
@@ -352,13 +352,6 @@ macro_rules! make_bitfield {
         impl std::ops::Not for $name {
             type Output = Self;
 
-            /// Flips all the bits inside bitfield.
-            ///
-            /// # Examples
-            ///
-            /// ```
-            /// invert(0b010110) // 101001
-            /// ```
             #[inline(always)]
             fn not(self) -> Self::Output {
                 Self(!self.0 & Self::MAX)
@@ -368,13 +361,6 @@ macro_rules! make_bitfield {
         impl std::ops::BitOr for $name {
             type Output = Self;
 
-            /// Merges the bits from two bitfields
-            ///
-            /// # Examples
-            ///
-            /// ```
-            /// 0b0101 | 0b1010 // 0xF
-            /// ```
             #[inline(always)]
             fn bitor(self, rhs: Self) -> Self::Output {
                 Self(self.0 | rhs.0)
@@ -384,13 +370,6 @@ macro_rules! make_bitfield {
         impl std::ops::BitAnd for $name {
             type Output = Self;
 
-            /// Returns the common bits between two bitfields
-            ///
-            /// # Examples
-            ///
-            /// ```
-            /// 0b0111 & 0b1010 // 0x0010
-            /// ```
             #[inline(always)]
             fn bitand(self, rhs: Self) -> Self::Output {
                 Self(self.0 & rhs.0)
@@ -411,16 +390,19 @@ macro_rules! make_bitfield {
             }
         }
 
+        impl std::ops::Add<$element> for $name {
+            type Output = Self;
+
+            #[inline(always)]
+            fn add(mut self, rhs: $element) -> Self::Output {
+                self.insert(rhs);
+                self
+            }
+        }
+
         impl std::ops::Sub<$name> for $name {
             type Output = Self;
 
-            /// Returns the difference between two bitfields.
-            ///
-            /// # Examples
-            ///
-            /// ```
-            /// 0b0111 - 0b1010 // 0x0101
-            /// ```
             #[inline(always)]
             fn sub(self, rhs: Self) -> Self::Output {
                 Self(self.0 & !rhs.0)
@@ -430,13 +412,6 @@ macro_rules! make_bitfield {
         impl std::ops::Sub<$element> for $name {
             type Output = Self;
 
-            /// Removes an element from a bitfield
-            ///
-            /// # Examples
-            ///
-            /// ```
-            /// 0b0111 - 0b1010 // 0x0101
-            /// ```
             #[inline(always)]
             fn sub(mut self, rhs: $element) -> Self::Output {
                 self.remove(rhs);
@@ -629,6 +604,8 @@ make_bitfield!(
 
 impl Bitfield16 {
     /// A nicer form of `decode_relative_to`.
+    // NOTE: only used in testing now. Is it worth keeping?
+    #[inline(always)]
     pub fn decode_self_relative_to(self: Self, other: Self) -> Option<Self> {
         Self::decode_relative_to(self, other)
     }
@@ -820,9 +797,9 @@ mod tests {
 
                 if bitfield.has(j) {
                     clone.remove(j);
-                    clone.add(j);
+                    clone.insert(j);
                 } else {
-                    clone.add(j);
+                    clone.insert(j);
                     clone.remove(j);
                 }
 
@@ -839,7 +816,7 @@ mod tests {
             for j in 0..16 {
                 let mut clone = bitfield.clone();
                 if !clone.has(j) {
-                    clone.add(j);
+                    clone.insert(j);
                     assert!(clone.has(j));
                 }
             }

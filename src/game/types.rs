@@ -30,10 +30,11 @@ impl Player {
     /// where the first and second elements represents the data
     /// for the current and other players respectively.
     #[inline(always)]
-    pub fn select<T: Copy>(self, pair: Pair<T>) -> T {
+    pub fn select<T>(self, pair: Pair<T>) -> T {
+        let [a, b] = pair;
         match self {
-            Player::Me => pair[0],
-            Player::You => pair[1],
+            Player::Me => a,
+            Player::You => b,
         }
     }
 
@@ -42,6 +43,16 @@ impl Player {
     pub fn set_selection<T>(self, pair: &mut Pair<T>, value: T) {
         let selection = self.select_mut(pair);
         *selection = value;
+    }
+
+    /// Similar to `select` but for references.
+    #[inline(always)]
+    pub fn select_ref<T>(self, pair: &Pair<T>) -> &T {
+        let [a, b] = pair;
+        match self {
+            Player::Me => &a,
+            Player::You => &b,
+        }
     }
 
     /// Similar to `select` but for mut references.
@@ -63,6 +74,30 @@ impl Player {
     #[inline(always)]
     pub fn order_as<T: Copy>(self, pair: Pair<T>) -> Pair<T> {
         conditional_swap(pair, self == Player::You)
+    }
+}
+
+#[cfg(test)]
+mod player_tests {
+    use crate::game::types::Player;
+
+    #[test]
+    fn select_examples() {
+        assert_eq!(Player::Me.select([1, 2]), 1);
+        assert_eq!(Player::You.select([1, 2]), 2);
+    }
+
+    #[test]
+    fn order_as_properties() {
+        let pair = [1, 2];
+
+        for player in Player::PLAYERS {
+            let ordered = player.order_as(pair);
+            assert_eq!(pair[0], player.select(ordered));
+            assert_eq!(pair[1], (!player).select(ordered));
+            assert_eq!(player.select(pair), ordered[0]);
+            assert_eq!((!player).select(pair), ordered[1]);
+        }
     }
 }
 // }}}

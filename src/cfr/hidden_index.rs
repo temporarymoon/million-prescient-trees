@@ -143,7 +143,7 @@ impl HiddenState {
 // {{{ HiddenIndex
 /// Encodes all hidden information known by a player.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
-pub struct HiddenIndex(usize);
+pub struct HiddenIndex(pub(super) usize);
 
 impl HiddenIndex {
     // {{{ Codec

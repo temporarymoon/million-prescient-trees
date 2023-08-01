@@ -30,10 +30,10 @@ impl UserCreatureChoice {
 
     pub fn as_creature_set(self) -> CreatureSet {
         let mut bitfield = CreatureSet::default();
-        bitfield.add(self.0);
+        bitfield.insert(self.0);
 
         if let Some(second) = self.1 {
-            bitfield.add(second);
+            bitfield.insert(second);
         }
 
         bitfield

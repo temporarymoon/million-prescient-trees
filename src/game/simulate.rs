@@ -379,8 +379,8 @@ impl BattleContext {
                 p2.edicts.remove(self.edict(!player));
 
                 // Discard creatures
-                new_state.graveyard.add(self.creature(player));
-                new_state.graveyard.add(self.creature(!player));
+                new_state.graveyard.insert(self.creature(player));
+                new_state.graveyard.insert(self.creature(!player));
 
                 // Clear status effects
                 p1.effects.clear();
@@ -397,8 +397,8 @@ impl BattleContext {
                 // Set up global lingering effects
                 if self.battlefield() == Battlefield::Night {
                     // [[[NIGHT SETUP]]]
-                    p1.effects.add(StatusEffect::Night);
-                    p2.effects.add(StatusEffect::Night);
+                    p1.effects.insert(StatusEffect::Night);
+                    p2.effects.insert(StatusEffect::Night);
                 }
 
                 // first is winner, second is loser
@@ -412,11 +412,11 @@ impl BattleContext {
                     match self.battlefield() {
                         // [[[GLADE SETUP]]]
                         Battlefield::Glade => {
-                            winner.effects.add(StatusEffect::Glade);
+                            winner.effects.insert(StatusEffect::Glade);
                         }
                         // [[[MOUNTAIN SETUP]]]
                         Battlefield::Mountain => {
-                            winner.effects.add(StatusEffect::Mountain);
+                            winner.effects.insert(StatusEffect::Mountain);
                         }
                         _ => {}
                     }
@@ -425,7 +425,7 @@ impl BattleContext {
                     // in adding the status effect anymore
                     // [[[BARBARIAN SETUP]]]
                     if !new_state.graveyard.has(Creature::Barbarian) {
-                        loser.effects.add(StatusEffect::Barbarian)
+                        loser.effects.insert(StatusEffect::Barbarian)
                     }
                 }
 
@@ -438,11 +438,11 @@ impl BattleContext {
 
                     match self.creature(player) {
                         // [[[MERCENARY SETUP]]]
-                        Creature::Mercenary => effects.add(StatusEffect::Mercenary),
+                        Creature::Mercenary => effects.insert(StatusEffect::Mercenary),
                         // [[[SEER SETUP]]]
-                        Creature::Seer => effects.add(StatusEffect::Seer),
+                        Creature::Seer => effects.insert(StatusEffect::Seer),
                         // [[[BARD SETUP]]]
-                        Creature::Bard => effects.add(StatusEffect::Bard),
+                        Creature::Bard => effects.insert(StatusEffect::Bard),
                         _ => {}
                     }
                 }
@@ -493,7 +493,7 @@ impl BattleContext {
         player
             .select_mut(&mut self.state.player_states)
             .effects
-            .add(effect)
+            .insert(effect)
     }
 
     /// Sets the main creature played by a player.
@@ -822,7 +822,7 @@ mod tests {
             .effects
             .has(effect);
 
-        ctx.state.graveyard.add(Creature::Barbarian);
+        ctx.state.graveyard.insert(Creature::Barbarian);
 
         let effect_while_in_grave = loser
             .select(

@@ -95,7 +95,7 @@ pub trait Phase: Sync {
 
     fn decision_counts(&self, state: &KnownState) -> Pair<usize>;
     fn reveal_count(&self, state: &KnownState) -> usize;
-    fn hidden_counts(&self, state: &KnownState) -> Pair<usize> {
+    fn hidden_counts<S: KnownStateEssentials>(&self, state: &S) -> Pair<usize> {
         Player::PLAYERS.map(|player| HiddenIndex::count(state, player, Self::TAG))
     }
 
@@ -142,7 +142,7 @@ impl Phase for MainPhase {
     // We offer a more performant implementation than the default one,
     // which makes use of the fact that during the main phase,
     // both players have the same number of possible hidden states!
-    fn hidden_counts(&self, state: &KnownState) -> Pair<usize> {
+    fn hidden_counts<S: KnownStateEssentials>(&self, state: &S) -> Pair<usize> {
         let count = HiddenIndex::count(state, Player::Me, Self::TAG);
 
         [count; 2]
@@ -359,7 +359,7 @@ impl SeerPhase {
     }
 
     fn graveyard(&self, mut graveyard: CreatureSet) -> CreatureSet {
-        graveyard.add(self.revealed_creature);
+        graveyard.insert(self.revealed_creature);
         graveyard
     }
 }
@@ -420,28 +420,28 @@ impl Phase for SeerPhase {
     ) -> impl Iterator<Item = Pair<hidden_index::EncodingInfo>> {
         let seer_player = state.forced_seer_player();
         let revealed_creature = self.revealed_creature;
+        let possibilities = !state.graveyard - revealed_creature;
 
-        SabotagePhase::new(self.edict_choices)
-            .valid_hidden_states(state)
-            .flat_map(move |info_pairs| {
-                let seer_player_hand = seer_player.select(info_pairs).get_main();
-
+        possibilities
+            .subsets_of_size(state.hand_size())
+            .dependent_cartesian_pair_product(move |my_hand| {
+                (possibilities - my_hand).subsets_of_size(state.hand_size() - 1)
+            })
+            .flat_map(move |[seer_player_hand, non_seer_player_hand]| {
                 let seer_player_infos = seer_player_hand
                     .subsets_of_size(state.creature_choice_size(seer_player))
                     .map(move |choice| {
                         PerPhaseInfo::Seer(seer_player_hand, choice, revealed_creature)
                     });
 
-                let non_seer_player_hand = (!seer_player).select(info_pairs).get_main();
                 let non_seer_player_info = PerPhaseInfo::Seer(
-                    non_seer_player_hand,
+                    non_seer_player_hand + revealed_creature,
                     CreatureSet::singleton(revealed_creature),
                     revealed_creature,
                 );
 
-                seer_player_infos.map(move |o| [o, non_seer_player_info])
+                seer_player_infos.map(move |o| seer_player.order_as([o, non_seer_player_info]))
             })
-            .map(move |indices| seer_player.order_as(indices))
     }
 
     fn advance_hidden_indices(
@@ -477,7 +477,7 @@ impl Phase for SeerPhase {
             let mut result = state.graveyard;
 
             for creature in final_choices {
-                result.add(creature);
+                result.insert(creature);
             }
 
             result
@@ -515,4 +515,116 @@ impl Phase for SeerPhase {
     }
 }
 // }}}
+// }}}
+// {{{ Tests
+#[cfg(test)]
+mod tests {
+    use std::println;
+
+    use super::{MainPhase, Phase, SabotagePhase, SeerPhase};
+    use crate::cfr::hidden_index::{self, HiddenIndex, PerPhaseInfo};
+    use crate::game::creature::CreatureSet;
+    use crate::game::edict::EdictSet;
+    use crate::game::known_state_summary::KnownStateSummary;
+    use crate::game::types::Player;
+    use crate::helpers::bitfield::Bitfield;
+    use crate::helpers::itertools::Itercools;
+    use crate::helpers::pair::Pair;
+    use bumpalo::Bump;
+    use itertools::Itertools;
+
+    /// Part of the next test!
+    fn all_states_valid_sometimes_per_phase<P: Phase>(
+        alloc: &mut Bump,
+        phase: P,
+        edict_sets: Pair<EdictSet>,
+        seer_player: Option<Player>,
+        graveyard: CreatureSet,
+    ) {
+        alloc.reset();
+        let state = KnownStateSummary::new(edict_sets, graveyard, seer_player);
+
+        let hidden_counts = phase.hidden_counts(&state);
+        let default_value: (bool, hidden_index::DecodingInfo) = (false, PerPhaseInfo::Main(()));
+        let hidden_index_trackers = [
+            alloc.alloc_slice_fill_copy(hidden_counts[0], default_value),
+            alloc.alloc_slice_fill_copy(hidden_counts[1], default_value),
+        ];
+
+        for infos in phase.valid_hidden_states(state) {
+            let [left, right] = Player::PLAYERS
+                .map(|player| HiddenIndex::encode(&state, player, player.select(infos)));
+
+            hidden_index_trackers[0][left.0] = (true, infos[0].forget_main().forget_sabotage());
+            hidden_index_trackers[1][right.0] = (true, infos[1].forget_main().forget_sabotage());
+        }
+
+        for player in Player::PLAYERS {
+            let tracker = player.select_ref(&hidden_index_trackers);
+            let counterexample = tracker.iter().find_position(|v| !v.0);
+            let decoded = counterexample
+                .map(|(index, (_, info))| HiddenIndex(index).decode(&state, player, *info));
+
+            assert!(
+                counterexample.is_none(),
+                "Found a state that is not covered: {:?}",
+                decoded
+            );
+        }
+    }
+
+    /// Checks that every possible hidden state is visited by `.valid_states` at least once.
+    ///
+    /// The search space is very big, so we only check a limited number of scenarios.
+    /// Moreover, we use a bump allocator in order to improve test performance.
+    #[test]
+    fn all_states_valid_sometimes() {
+        let mut alloc = Bump::with_capacity(1024);
+        let seer_player_possiblities = [None, Some(Player::Me), Some(Player::You)];
+        for edict_sets in EdictSet::members()
+            .cartesian_pair_product(EdictSet::members())
+            .take(50)
+        {
+            for (index, graveyard) in CreatureSet::all().subsets_of_size(4).take(50).enumerate() {
+                // We cycle through these for performance reasons
+                let seer_player = seer_player_possiblities[index % 3];
+
+                let phase = MainPhase::new();
+                all_states_valid_sometimes_per_phase(
+                    &mut alloc,
+                    phase,
+                    edict_sets,
+                    seer_player,
+                    graveyard,
+                );
+
+                for edicts in edict_sets[0]
+                    .into_iter()
+                    .cartesian_pair_product(edict_sets[1])
+                    .take(10)
+                {
+                    let phase = SabotagePhase::new(edicts);
+                    all_states_valid_sometimes_per_phase(
+                        &mut alloc,
+                        phase,
+                        edict_sets,
+                        seer_player,
+                        graveyard,
+                    );
+
+                    for creature in (!graveyard).into_iter().take(3) {
+                        let phase = SeerPhase::new(edicts, [None; 2], creature);
+                        all_states_valid_sometimes_per_phase(
+                            &mut alloc,
+                            phase,
+                            edict_sets,
+                            seer_player,
+                            graveyard,
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
 // }}}
