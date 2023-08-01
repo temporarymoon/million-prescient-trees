@@ -519,8 +519,6 @@ impl Phase for SeerPhase {
 // {{{ Tests
 #[cfg(test)]
 mod tests {
-    use std::println;
-
     use super::{MainPhase, Phase, SabotagePhase, SeerPhase};
     use crate::cfr::hidden_index::{self, HiddenIndex, PerPhaseInfo};
     use crate::game::creature::CreatureSet;
@@ -533,6 +531,7 @@ mod tests {
     use bumpalo::Bump;
     use itertools::Itertools;
 
+    // {{{ `valid_hidden_states`
     /// Part of the next test!
     fn all_states_valid_sometimes_per_phase<P: Phase>(
         alloc: &mut Bump,
@@ -626,5 +625,6 @@ mod tests {
             }
         }
     }
+    // }}}
 }
 // }}}
