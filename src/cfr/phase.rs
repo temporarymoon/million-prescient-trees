@@ -582,9 +582,9 @@ mod tests {
         let seer_player_possiblities = [None, Some(Player::Me), Some(Player::You)];
         for edict_sets in EdictSet::members()
             .cartesian_pair_product(EdictSet::members())
-            .take(50)
+            .take(60)
         {
-            for (index, graveyard) in CreatureSet::all().subsets_of_size(4).take(50).enumerate() {
+            for (index, graveyard) in CreatureSet::all().subsets_of_size(4).take(60).enumerate() {
                 // We cycle through these for performance reasons
                 let seer_player = seer_player_possiblities[index % 3];
 
