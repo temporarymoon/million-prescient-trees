@@ -65,7 +65,8 @@ impl Player {
     }
 
     /// Swaps a pair such that:
-    /// ```
+    /// 
+    /// ```ignore
     /// pair.0 ==    player.select(player.order_as(pair))
     /// pair.1 == (!player).select(player.order_as(pair))
     /// player.select(pair)    == player.order_as(pair).0

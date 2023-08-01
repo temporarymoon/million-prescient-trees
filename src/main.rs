@@ -1,33 +1,14 @@
-#![feature(allocator_api)]
-#![feature(iter_collect_into)]
-#![feature(const_for)]
-#![feature(const_mut_refs)]
-#![feature(const_option)]
-#![feature(const_fmt_arguments_new)]
-#![feature(const_trait_impl)]
-#![feature(iterator_try_collect)]
-#![feature(iter_array_chunks)]
-#![feature(iter_next_chunk)]
-#![feature(array_try_map)]
-#![feature(array_methods)]
-#![feature(return_position_impl_trait_in_trait)]
 #![allow(dead_code)]
 
 use bumpalo::Bump;
-use cfr::generate::GenerationContext;
-use game::battlefield::Battlefield;
-use game::known_state::KnownState;
+use echo::cfr::generate::EstimationContext;
+use echo::cfr::generate::GenerationContext;
+use echo::game::battlefield::Battlefield;
+use echo::game::creature::Creature;
+use echo::game::known_state::KnownState;
+use echo::helpers::bitfield::Bitfield;
 use std::println;
 use std::time::Instant;
-
-use crate::cfr::generate::EstimationContext;
-use crate::game::creature::Creature;
-use crate::helpers::bitfield::Bitfield;
-
-mod ai;
-mod cfr;
-mod game;
-mod helpers;
 
 fn mb_to_b(mb: usize) -> usize {
     mb * 1024 * 1024
@@ -94,17 +75,25 @@ fn simple_generation(from: usize, turns: usize, generate: bool) {
 }
 
 fn main() {
-    simple_generation(0, 2, false);
+    // simple_generation(0, 2, false);
+    
 
+
+    // let mut x = 0b1001111;
+    // for _ in 0..10 {
+    //     println!("{:b}", x);
+    //     x = snoob(x);
+    // }
+    //
     // let mut creatures = CreatureSet::default();
     //
-    // creatures.add(Creature::Seer);
-    // creatures.add(Creature::Wall);
-    // creatures.add(Creature::Bard);
-    // creatures.add(Creature::Mercenary);
-    // creatures.add(Creature::Steward);
+    // creatures.insert(Creature::Seer);
+    // creatures.insert(Creature::Wall);
+    // creatures.insert(Creature::Bard);
+    // creatures.insert(Creature::Mercenary);
+    // creatures.insert(Creature::Steward);
     //
-    // println!("{:?}", creatures.subsets_of_size(3));
+    // println!("{creatures:?}");
     //
     // for s in creatures.subsets_of_size(3) {
     //     println!("{s:?}");

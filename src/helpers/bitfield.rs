@@ -1,8 +1,6 @@
 use std::{fmt::{Binary, Debug}, convert::{TryFrom, TryInto}, ops::BitAnd};
 
-use self::const_size_codec::ConstSizeCodec;
-
-use super::choose::choose;
+use super::{choose::choose, bitops::snoob};
 
 // {{{ Trait definition
 /// A (non exhuasive) list of laws:
@@ -23,6 +21,9 @@ pub trait Bitfield: Sized + Copy + Binary + Into<Self::Representation>
 
     /// Construct a new bitfield.
     fn new(x: Self::Representation) -> Self;
+
+    /// Construct a new bitfield from a number which might or might not be valid.
+    fn new_unchecked(x: usize) -> Self;
 
     /// Construct a bitfield containing a single bit.
     fn singleton(x: Self::Element) -> Self;
@@ -49,34 +50,46 @@ pub trait Bitfield: Sized + Copy + Binary + Into<Self::Representation>
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// has(0b0100, 1) // false
     /// has(0b0100, 2) // true
     /// ```
     fn has(self, index: Self::Element) -> bool;
 
     /// Similar to `has`, but accepts integers instead of `$element`.
-    fn has_raw(self, index: usize) -> bool;
+    #[inline(always)]
+    fn has_raw(self, index: usize) -> bool {
+        self.has_mask(1 << index)
+    }
+
+    /// Similar to `has`, but accepts integers instead of `$element`.
+    fn has_mask(self, mask: usize) -> bool;
 
     /// Adds a bit to a bitfield.
     /// Errors out if the bit is already there.
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// add(0b0100, 1) // 0b0110
     /// ```
     fn insert(&mut self, index: Self::Element);
 
     /// Similar to `add`, but accepts integers instead of `$element`.
-    fn insert_raw(&mut self, index: usize);
+    #[inline(always)]
+    fn insert_raw(&mut self, index: usize) {
+        self.insert_mask(1 << index);
+    }
+
+    /// Similar to `add`, but accepts integers instead of `$element`.
+    fn insert_mask(&mut self, mask: usize);
 
     /// Removes a bit from a bitfield.
     /// Errors out if the bit is already there.
     /// # Examples
     ///
-    /// ```
-    /// add(0b0110, 1) // 0b0100
+    /// ```ignore
+    /// remove(0b0110, 1) // 0b0100
     /// ```
     fn remove(&mut self, index: Self::Element);
 
@@ -102,7 +115,7 @@ pub trait Bitfield: Sized + Copy + Binary + Into<Self::Representation>
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// len(0b101011) // 4
     /// ```
     fn len(self) -> usize;
@@ -115,7 +128,7 @@ pub trait Bitfield: Sized + Copy + Binary + Into<Self::Representation>
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// indexof(0b0100, 2) // 0
     /// indexof(0b0101, 2) // 1
     /// indexof(0b0111, 2) // 2
@@ -129,7 +142,7 @@ pub trait Bitfield: Sized + Copy + Binary + Into<Self::Representation>
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// index(0b010101, 2) // Some(4)
     /// index(0b010101, 3) // Some(4)
     /// ```
@@ -143,7 +156,7 @@ pub trait Bitfield: Sized + Copy + Binary + Into<Self::Representation>
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// index(0b010101, 2) // Some(4)
     /// index(0b010101, 3) // Some(4)
     /// ```
@@ -163,9 +176,16 @@ pub trait Bitfield: Sized + Copy + Binary + Into<Self::Representation>
 
         assert!(self.is_subset_of(other));
 
+        let mut mask_to_apply = 1;
+
         for i in 0..Self::BITS {
-            if self.has_raw(i) {
-                result.insert(other.indexof_raw(i).unwrap());
+            let current_mask = 1 << i;
+            if self.has_mask(current_mask) {
+                result.insert_mask(mask_to_apply);
+            }
+
+            if other.has_mask(current_mask) {
+                mask_to_apply <<= 1;
             }
         }
 
@@ -173,12 +193,24 @@ pub trait Bitfield: Sized + Copy + Binary + Into<Self::Representation>
     }
 
     /// Inverse of `encode_relative_to`.
+    ///
+    /// Takes two bitfields as input, and produces a new bitfield
+    /// by taking the position `k` of each `1` in `encoded`,
+    /// and setting the `j`-th bit of the result to `1`,
+    /// where `j` is the position of the `k`-th `1` in `other`.
     fn decode_relative_to(encoded: Self::IndexBitfield, other: Self) -> Option<Self> {
         let mut result = Self::empty();
+        let mut mask_encoded = 1;
 
         for i in 0..Self::BITS {
-            if encoded.has_raw(i) {
-                result.insert_raw(other.index_raw(i as usize)?);
+            let current_mask = 1 << i;
+
+            if other.has_mask(current_mask) {
+                if encoded.has_mask(mask_encoded) {
+                    result.insert_mask(current_mask);
+                }
+
+                mask_encoded <<= 1;
             }
         }
 
@@ -265,6 +297,11 @@ macro_rules! make_bitfield {
             }
 
             #[inline(always)]
+            fn new_unchecked(x: usize) -> Self {
+                Self(x as $repr)
+            }
+
+            #[inline(always)]
             fn singleton(x: $element) -> Self {
                 Self::new(1 << (x as $repr))
             }
@@ -275,14 +312,15 @@ macro_rules! make_bitfield {
             }
 
             #[inline(always)]
-            fn has(self, index: $element) -> bool {
+            fn has(self, index: Self::Element) -> bool {
                 self.has_raw(index as usize)
             }
 
             #[inline(always)]
-            fn has_raw(self, index: usize) -> bool {
-                ((self.0 >> (index as $repr)) & 1) != 0
+            fn has_mask(self, mask: usize) -> bool {
+                self.0 & (mask as $repr) != 0
             }
+
 
             fn insert(&mut self, index: $element) {
                 if self.has(index) {
@@ -295,15 +333,9 @@ macro_rules! make_bitfield {
                 self.0 |= 1 << (index as $repr);
             }
 
-            fn insert_raw(&mut self, index: usize) {
-                if self.has_raw(index) {
-                    panic!(
-                        "Trying to add index {} that is already present in {:b}",
-                        index, self.0
-                    )
-                }
-
-                self.0 |= 1 << (index as $repr);
+            #[inline(always)]
+            fn insert_mask(&mut self, mask: usize) {
+                self.0 |= (mask as $repr);
             }
 
             fn remove(&mut self, index: $element) {
@@ -501,9 +533,8 @@ impl<B: Bitfield> DoubleEndedIterator for BitfieldIterator<B> {
 // {{{ Fixed size subset iterator
 #[derive(Debug, Clone, Copy)]
 pub struct BitfieldFixedSizeSubsetIterator<B> {
-    index: usize,
-    index_end: usize,
-    ones: usize,
+    remaining: usize,
+    current: usize,
     possibilities: B,
 }
 
@@ -511,9 +542,8 @@ impl<B: Bitfield> BitfieldFixedSizeSubsetIterator<B> {
     #[inline(always)]
     pub fn new(possibilities: B, ones: usize) -> Self {
         Self {
-            index: 0,
-            index_end: choose(possibilities.len(), ones) - 1,
-            ones,
+            remaining: choose(possibilities.len(), ones),
+            current: (1 << ones) - 1,
             possibilities,
         }
     }
@@ -523,21 +553,12 @@ impl<B: Bitfield> Iterator for BitfieldFixedSizeSubsetIterator<B> {
     type Item = B;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.index <= self.index_end {
-            let result = ConstSizeCodec::decode_ones(self.index, self.ones)?;
-            self.index += 1;
-            Bitfield::decode_relative_to(result, self.possibilities)
-        } else {
-            None
-        }
-    }
-}
+        if 0 < self.remaining {
+            let result = B::IndexBitfield::new_unchecked(self.current);
 
-impl<B: Bitfield> DoubleEndedIterator for BitfieldFixedSizeSubsetIterator<B> {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        if self.index <= self.index_end {
-            let result = ConstSizeCodec::decode_ones(self.index_end, self.ones)?;
-            self.index_end -= 1;
+            self.remaining -= 1;
+            self.current = snoob(self.current);
+
             Bitfield::decode_relative_to(result, self.possibilities)
         } else {
             None
@@ -571,7 +592,7 @@ impl<B: Bitfield> Iterator for BitfieldSubsetIterator<B> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.index <= self.index_end {
-            let result = B::IndexBitfield::new(self.index.try_into().ok()?);
+            let result = B::IndexBitfield::new_unchecked(self.index);
             self.index += 1;
             Bitfield::decode_relative_to(result, self.possibilities)
         } else {
@@ -779,7 +800,6 @@ pub mod const_size_codec {
 #[cfg(test)]
 mod tests {
     use std::assert_eq;
-
     use super::*;
 
     #[test]
@@ -923,9 +943,15 @@ mod tests {
 
     #[test]
     fn encode_relative_to_examples() {
+        let raw = 0b100010;
+        let other = Bitfield16::new(0b101011);
+        let encoded = 0b1010;
         assert_eq!(
-            Bitfield16::new(0b100010).encode_relative_to(Bitfield16::new(0b101011)),
-            Bitfield16::new(0b1010)
+            Bitfield16::new(raw).encode_relative_to(other),
+            Bitfield16::new(encoded),
+            "Encoding {:b} relative to {:b} yielded the wrong result",
+            raw,
+            other
         );
     }
 
@@ -1010,5 +1036,6 @@ mod tests {
             }
         }
     }
+
 }
 // }}}

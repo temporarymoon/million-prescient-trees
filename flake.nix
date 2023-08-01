@@ -14,6 +14,7 @@
             nativeBuildInputs = with pkgs; [
               rustup
               cargo
+              gnuplot
             ];
           };
         });
