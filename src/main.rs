@@ -3,9 +3,12 @@
 use bumpalo::Bump;
 use echo::cfr::generate::EstimationContext;
 use echo::cfr::generate::GenerationContext;
+use echo::cfr::train::TrainingContext;
 use echo::game::battlefield::Battlefield;
 use echo::game::creature::Creature;
+use echo::game::edict::Edict;
 use echo::game::known_state::KnownState;
+use echo::game::known_state_summary::KnownStateEssentials;
 use echo::helpers::bitfield::Bitfield;
 use std::println;
 use std::time::Instant;
@@ -76,78 +79,27 @@ fn simple_generation(from: usize, turns: usize, generate: bool) {
 
 fn main() {
     // simple_generation(0, 2, false);
-    
 
+    // {{{ State creation
+    let mut state = KnownState::new_starting([Battlefield::Plains; 4]);
+    state.battlefields.current = 2;
+    for creature in Creature::CREATURES.into_iter().take(4) {
+        state.graveyard.insert(creature);
+    }
 
-    // let mut x = 0b1001111;
-    // for _ in 0..10 {
-    //     println!("{:b}", x);
-    //     x = snoob(x);
-    // }
-    //
-    // let mut creatures = CreatureSet::default();
-    //
-    // creatures.insert(Creature::Seer);
-    // creatures.insert(Creature::Wall);
-    // creatures.insert(Creature::Bard);
-    // creatures.insert(Creature::Mercenary);
-    // creatures.insert(Creature::Steward);
-    //
-    // println!("{creatures:?}");
-    //
-    // for s in creatures.subsets_of_size(3) {
-    //     println!("{s:?}");
-    // }
-
-    // let mut state = KnownState::new_starting([Battlefield::Plains; 4]);
-    // state.graveyard.add(Creature::Seer);
-    // state.graveyard.add(Creature::Mercenary);
-    //
-    // let phase = MainPhase::new();
-    // println!("{:?}", phase.valid_hidden_states(&state).count());
-    //
-    // for indices in phase.valid_hidden_states(&state) {
-    //     let my_state = indices[0]
-    //         .decode_main_index(state.graveyard, state.hand_size())
-    //         .unwrap();
-    //
-    //     let your_state = indices[1]
-    //         .decode_main_index(state.graveyard, state.hand_size())
-    //         .unwrap();
-    //
-    //     println!("{my_state:?} --- {your_state:?}");
-    // }
-
-    // let mut state = KnownState::new_starting([Battlefield::Plains; 4]);
-    //
-    // for i in 0..2 {
-    //     state.graveyard.add(Creature::CREATURES[2 * i]);
-    //     state.graveyard.add(Creature::CREATURES[2 * i + 1]);
-    // }
-    //
-    // let revealed = Creature::Monarch;
-    //
-    // let phase = SeerPhase::new(
-    //     [Edict::DivertAttention, Edict::RileThePublic],
-    //     [None, None],
-    //     revealed,
-    // );
-    //
-    // state.player_states[0].effects.add(StatusEffect::Seer);
-    //
-    // println!("Seer player {:?}", state.forced_seer_player());
-    //
-    // let graveyard = state.graveyard | CreatureSet::singleton(revealed);
-    //
-    // println!("Graveyard: {:?}", graveyard);
-    //
-    // for indices in phase.valid_hidden_states(&state) {
-    //     let my_state = indices[0]
-    //         .decode_sabotage_seer_index(1, graveyard, true)
-    //         .unwrap();
-    //     println!("My state {my_state:?}");
-    //
-    //     let your_state = indices[1].decode_main_index(graveyard, 2).unwrap();
-    //     println!("Your state {your_state:?}");
-    // }
+    for state in state.player_states.iter_mut() {
+        for edict in Edict::EDICTS.into_iter().take(2) {
+            state.edicts.remove(edict);
+        }
+    }
+    // }}}
+    // {{{ Generation
+    let allocator = Bump::new();
+    let generator = GenerationContext::new(2, state, &allocator);
+    let mut scope = generator.generate();
+    // }}}
+    // {{{ Training
+    let ctx = TrainingContext::new();
+    ctx.train(&mut scope, state.to_summary(), 10000);
+    // }}}
 }

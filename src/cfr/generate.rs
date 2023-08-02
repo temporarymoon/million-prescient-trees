@@ -1,7 +1,9 @@
 use super::decision::{DecisionMatrices, ExploredScope, Scope, UnexploredScope};
-use super::phase::{PhaseStats, PhaseTag, MainPhase, Phase};
+use super::phase::{MainPhase, Phase, PhaseStats, PhaseTag};
 use super::reveal_index::RevealIndex;
 use crate::game::known_state::KnownState;
+use crate::game::known_state_summary::KnownStateEssentials;
+use crate::game::simulate::BattleContext;
 use crate::game::types::TurnResult;
 use bumpalo::Bump;
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
@@ -92,11 +94,20 @@ impl<'a> GenerationContext<'a> {
     }
 
     pub fn generate(&self) -> Scope<'a> {
-        self.generate_generic(MainPhase::new())
+        self.generate_generic(
+            MainPhase::new(),
+            #[cfg(debug_assertions)]
+            None,
+        )
     }
     // }}}
     // {{{ Generic generation
-    fn generate_generic<P: Phase>(&self, phase: P) -> Scope<'a> {
+    fn generate_generic<P: Phase>(
+        &self,
+        phase: P,
+
+        #[cfg(debug_assertions)] context: Option<BattleContext>,
+    ) -> Scope<'a> {
         if self.turns == 0 {
             return Scope::Unexplored(UnexploredScope { state: None });
         }
@@ -113,23 +124,37 @@ impl<'a> GenerationContext<'a> {
         let next = self
             .allocator
             .alloc_slice_fill_with(phase.reveal_count(&self.state), |index| {
-                let advanced = phase.advance_state(&self.state, RevealIndex(index));
+                let reveal_index = RevealIndex(index);
+                let advanced = phase.advance_state(&self.state, reveal_index);
 
                 match advanced {
                     TurnResult::Finished(score) => Scope::Completed(score),
-                    TurnResult::Unfinished((next, new_state)) => {
+                    TurnResult::Unfinished(new_state) => {
                         let new_self = Self::new(
                             self.turns - P::ADVANCES_TURN as usize,
                             new_state,
                             self.allocator,
                         );
 
-                        new_self.generate_generic::<P::Next>(next)
+                        let next = phase.advance_phase(&self.state, reveal_index).unwrap();
+
+                        new_self.generate_generic::<P::Next>(
+                            next,
+                            #[cfg(debug_assertions)]
+                            phase.battle_context(&self.state, reveal_index),
+                        )
                     }
                 }
             });
 
-        Scope::Explored(ExploredScope { matrices, next })
+        Scope::Explored(ExploredScope {
+            matrices,
+            next,
+            #[cfg(debug_assertions)]
+            summary: self.state.to_summary(),
+            #[cfg(debug_assertions)]
+            context,
+        })
     }
     // }}}
 }
@@ -176,7 +201,8 @@ impl EstimationContext {
 
         let (slice_memory_estimate, mut stats) =
             Self::estimate_slice_alloc(reveal_count, |index| {
-                let advanced = phase.advance_state(&self.state, RevealIndex(index));
+                let reveal_index = RevealIndex(index);
+                let advanced = phase.advance_state(&self.state, reveal_index);
 
                 match advanced {
                     TurnResult::Finished(_) => {
@@ -184,8 +210,9 @@ impl EstimationContext {
                         stats.completed_scopes += 1;
                         stats
                     }
-                    TurnResult::Unfinished((next, new_state)) => {
+                    TurnResult::Unfinished(new_state) => {
                         let new_self = Self::new(self.turns - P::ADVANCES_TURN as usize, new_state);
+                        let next = phase.advance_phase(&self.state, reveal_index).unwrap();
 
                         new_self.estimate_generic::<P::Next>(next)
                     }

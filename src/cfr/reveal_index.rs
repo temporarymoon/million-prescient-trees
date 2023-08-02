@@ -140,18 +140,28 @@ impl RevealIndex {
     // }}}
     // {{{ Seer phase
     #[inline(always)]
-    pub fn encode_seer_phase_reveal(creature: Creature, graveyard: CreatureSet) -> Option<Self> {
-        Some(Self((!graveyard).indexof(creature)?))
+    pub fn encode_seer_phase_reveal(
+        creature: Creature,
+        graveyard: CreatureSet,
+        revealed_creature: Creature,
+    ) -> Option<Self> {
+        let possibilities = !graveyard - revealed_creature;
+        Some(Self(possibilities.indexof(creature)?))
     }
 
     #[inline(always)]
-    pub fn decode_seer_phase_reveal(self, graveyard: CreatureSet) -> Option<Creature> {
-        (!graveyard).index(self.0)
+    pub fn decode_seer_phase_reveal(
+        self,
+        graveyard: CreatureSet,
+        revealed_creature: Creature,
+    ) -> Option<Creature> {
+        let possibilities = !graveyard - revealed_creature;
+        possibilities.index(self.0)
     }
 
     #[inline(always)]
     pub fn seer_phase_count(graveyard: CreatureSet) -> usize {
-        (!graveyard).len()
+        (!graveyard).len() - 1
     }
     // }}}
 }

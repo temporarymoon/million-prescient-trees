@@ -1,5 +1,3 @@
-use std::assert_eq;
-
 use super::phase::PhaseTag;
 use crate::game::creature::{Creature, CreatureSet};
 use crate::game::known_state_summary::KnownStateEssentials;
@@ -8,6 +6,7 @@ use crate::helpers::bitfield::const_size_codec::ConstSizeCodec;
 use crate::helpers::bitfield::Bitfield;
 use crate::helpers::choose::choose;
 use crate::helpers::ranged::MixRanged;
+use std::assert_eq;
 
 // {{{ PerPhaseInfo
 /// Generic struct which holds a phase tag, and optionally:
@@ -157,7 +156,7 @@ impl HiddenIndex {
         match phase {
             PhaseTag::Main => false,
             PhaseTag::Sabotage => true,
-            PhaseTag::Seer => player == state.forced_seer_player(),
+            PhaseTag::Seer => player == state.last_creature_revealer(),
         }
     }
 
@@ -171,7 +170,7 @@ impl HiddenIndex {
             assert!(choice.is_subset_of(hand));
 
             match revealed {
-                Some(revealed) if player != state.forced_seer_player() => {
+                Some(revealed) if player != state.last_creature_revealer() => {
                     assert_eq!(choice, CreatureSet::singleton(revealed));
 
                     encoded_hand.into()
@@ -367,7 +366,7 @@ mod tests {
                     };
 
                     for choice in hand.subsets_of_size(choice_size) {
-                        let revealed_iter = if player == state.forced_seer_player() {
+                        let revealed_iter = if player == state.last_creature_revealer() {
                             (!(graveyard | hand)).into_iter()
                         } else {
                             choice.into_iter()

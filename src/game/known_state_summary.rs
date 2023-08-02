@@ -67,7 +67,7 @@ pub trait KnownStateEssentials {
     /// Picks a player to reveal their creature last.
     /// If the seer effect is not active, this is arbitrary.
     #[inline(always)]
-    fn forced_seer_player(&self) -> Player {
+    fn last_creature_revealer(&self) -> Player {
         self.seer_player().unwrap_or(Player::Me)
     }
 
@@ -96,7 +96,7 @@ pub trait KnownStateEssentials {
 ///
 /// Furthermore, this struct holds the minimal information required
 /// to implement `KnownStateEssentials`.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct KnownStateSummary {
     pub edict_sets: Pair<EdictSet>,
     pub graveyard: CreatureSet,

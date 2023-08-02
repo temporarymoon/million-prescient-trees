@@ -1,27 +1,142 @@
-use std::{println, unreachable};
+use super::decision::{DecisionVector, Probability, Scope, Utility};
+use super::hidden_index::{self, HiddenIndex, HiddenState};
+use super::phase::{MainPhase, Phase};
+use crate::cfr::decision_index::DecisionIndex;
+use crate::game::known_state_summary::KnownStateSummary;
+use crate::game::types::Player;
+use crate::helpers::pair::Pair;
+use std::{debug_assert_eq, println, unreachable};
 
-use crate::game::types::Score;
-
-use super::decision::{Scope, Utility};
-
+// TODO: implement resetting of weights halfway through training.
 pub struct TrainingContext {}
 
 impl TrainingContext {
-    pub fn propagate_probabilities(&self, scope: &mut Scope) -> Utility {
-        match scope {
-            Scope::Completed(Score(score)) => {
-                if *score > 0 {
-                    1.0
-                } else if *score < 0 {
-                    -1.0
-                } else {
-                    0.0
-                }
+    pub fn new() -> Self {
+        Self {}
+    }
+
+    pub fn train(&self, scope: &mut Scope, state: KnownStateSummary, iterations: usize) {
+        let probabilities: Pair<Probability> = [0.0, 0.0];
+        for i in 0..iterations {
+            println!("Iteration {i}");
+            let phase = MainPhase::new();
+            for hidden in phase.valid_hidden_states(state) {
+                self.train_phase(scope, phase, state, hidden, probabilities);
             }
+        }
+    }
+
+    fn train_phase<P: Phase>(
+        &self,
+        scope: &mut Scope,
+        phase: P,
+        state: KnownStateSummary,
+        hidden: Pair<hidden_index::EncodingInfo>,
+        probabilities: Pair<Probability>,
+    ) -> Option<Utility> {
+        match scope {
+            Scope::Completed(score) => Some(score.to_utility()),
             Scope::Unexplored(_) => unreachable!("Oops, cannot handle unexplored scopes"),
-            Scope::Explored(_) => {
-                println!("Explored");
-                0.0
+            Scope::Explored(scope) => {
+                #[cfg(debug_assertions)]
+                debug_assert_eq!(
+                    scope.summary, state,
+                    "Something went wrong with simulating {:?}",
+                    scope.context
+                );
+                // {{{ Prepare data
+                let counts = scope.matrices.decision_counts();
+                let hidden_states = hidden.map(HiddenState::from_encoding_info);
+                let indices = Player::PLAYERS
+                    .map(|player| HiddenIndex::encode(&state, player, player.select(hidden)));
+
+                let mut nodes = scope.matrices.get_nodes_mut(indices);
+                let mut total_utility: Utility = 0.0;
+                // }}}
+                // {{{ Compute strategy
+                for node in &mut nodes {
+                    if let Some(node) = node {
+                        node.recompute_regret_magnitude();
+                        node.update_strategy_sum();
+                    }
+                }
+                // }}}
+                // {{{ First player
+                for index in 0..(counts[0]) {
+                    let my_decision = DecisionIndex(index);
+                    let my_probability = DecisionVector::try_strategy(nodes[0].as_deref(), index);
+
+                    // {{{ Second player
+                    let future_utility = {
+                        let mut total_utility: Utility = 0.0;
+
+                        for index in 0..(counts[1]) {
+                            let your_decision = DecisionIndex(index);
+                            let your_probability =
+                                DecisionVector::try_strategy(nodes[1].as_deref(), index);
+
+                            // {{{ Recursive call
+                            let new_probabilities = [
+                                probabilities[0] * my_probability,
+                                probabilities[1] * your_probability,
+                            ];
+
+                            let decisions = [my_decision, your_decision];
+
+                            let (new_state, new_hidden, reveal_index) = phase
+                                .advance_hidden_indices(state, hidden_states, decisions)
+                                .unwrap();
+
+                            let new_scope = &mut scope.next[reveal_index.0];
+                            let next_phase = phase.advance_phase(&state, reveal_index)?;
+
+                            let future_utility = -self.train_phase::<P::Next>(
+                                new_scope,
+                                next_phase,
+                                new_state,
+                                new_hidden,
+                                new_probabilities,
+                            )?;
+                            // }}}
+
+                            total_utility += your_probability * future_utility;
+
+                            // {{{ Add utility to your regret
+                            if let Some(node) = &mut nodes[1] {
+                                node.regret_sum[index] +=
+                                    my_probability * probabilities[0] * future_utility;
+                            }
+                            // }}}
+                        }
+
+                        -total_utility
+                    };
+                    // }}}
+
+                    total_utility += my_probability * future_utility;
+
+                    // {{{ Add utility to my regret
+                    if let Some(node) = &mut nodes[0] {
+                        node.regret_sum[index] += probabilities[1] * future_utility;
+                    }
+                    // }}}
+                }
+                // }}}
+                // {{{ Subtract total utility from regrets
+                if let Some(node) = &mut nodes[0] {
+                    for index in 0..counts[0] {
+                        node.regret_sum[index] -= probabilities[1] * total_utility;
+                    }
+                }
+
+                if let Some(node) = &mut nodes[1] {
+                    for index in 0..counts[1] {
+                        node.regret_sum[index] -= probabilities[0] * total_utility;
+                    }
+                }
+                // }}}
+
+                Some(total_utility)
             }
         }
     }

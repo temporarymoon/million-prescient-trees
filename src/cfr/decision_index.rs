@@ -10,7 +10,7 @@ use itertools::Itertools;
 
 /// Used to index decision vectors.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
-pub struct DecisionIndex(usize);
+pub struct DecisionIndex(pub(super) usize);
 
 impl DecisionIndex {
     // {{{ Main phase
@@ -93,10 +93,12 @@ impl DecisionIndex {
         let result = if sabotage_status {
             let possibilities = Self::sabotage_decision_possibilities(hand, state.graveyard());
 
-            CreatureSet::decode_ones_relative_to(self.0, 1, possibilities)?
+            let creature = CreatureSet::decode_ones_relative_to(self.0, 1, possibilities)?
                 .into_iter()
                 .exactly_one()
-                .ok()
+                .ok()?;
+
+            Some(creature)
         } else {
             assert_eq!(self.0, 0);
             None

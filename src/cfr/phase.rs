@@ -20,7 +20,7 @@ use std::format;
 use std::mem::size_of;
 
 // {{{ Phase tags
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum PhaseTag {
     Main,
     Sabotage,
@@ -87,11 +87,25 @@ pub trait Phase: Sync {
     const ADVANCES_TURN: bool = false;
 
     fn is_symmetrical(&self) -> bool;
+    fn advance_phase<S: KnownStateEssentials>(
+        &self,
+        state: &S,
+        reveal_index: RevealIndex,
+    ) -> Option<Self::Next>;
+
     fn advance_state(
         &self,
         state: &KnownState,
         reveal_index: RevealIndex,
-    ) -> TurnResult<(Self::Next, KnownState)>;
+    ) -> TurnResult<KnownState>;
+
+    fn battle_context(
+        &self,
+        _state: &KnownState,
+        _reveal_index: RevealIndex,
+    ) -> Option<BattleContext> {
+        None
+    }
 
     fn decision_counts(&self, state: &KnownState) -> Pair<usize>;
     fn reveal_count(&self, state: &KnownState) -> usize;
@@ -114,10 +128,13 @@ pub trait Phase: Sync {
         Pair<hidden_index::EncodingInfo>,
         RevealIndex,
     )>;
+
+    fn hidden_index_decoding_info(&self) -> hidden_index::DecodingInfo;
 }
 // }}}
 // {{{ Phase instances
 // {{{ Main phase
+#[derive(Debug, Clone, Copy)]
 pub struct MainPhase;
 
 impl MainPhase {
@@ -152,21 +169,27 @@ impl Phase for MainPhase {
         RevealIndex::main_phase_count(state.edict_sets())
     }
 
+    fn advance_phase<S: KnownStateEssentials>(
+        &self,
+        state: &S,
+        reveal_index: RevealIndex,
+    ) -> Option<Self::Next> {
+        let edict_choices = reveal_index.decode_main_phase_reveal(state.edict_sets())?;
+
+        Some(SabotagePhase::new(edict_choices))
+    }
+
     fn advance_state(
         &self,
         state: &KnownState,
-        reveal_index: RevealIndex,
-    ) -> TurnResult<(Self::Next, KnownState)> {
+        _reveal_index: RevealIndex,
+    ) -> TurnResult<KnownState> {
         // Sanity check
         for player in Player::PLAYERS {
             debug_assert!(state.player_edicts(player).len() >= 5 - state.battlefields.current);
         }
 
-        let edict_choices = reveal_index
-            .decode_main_phase_reveal(state.edict_sets())
-            .unwrap();
-
-        TurnResult::Unfinished((SabotagePhase::new(edict_choices), *state))
+        TurnResult::Unfinished(*state)
     }
 
     fn valid_hidden_states(
@@ -212,6 +235,10 @@ impl Phase for MainPhase {
 
         Some((state, hidden_info, reveal_index))
     }
+
+    fn hidden_index_decoding_info(&self) -> hidden_index::DecodingInfo {
+        PerPhaseInfo::Main(())
+    }
 }
 // }}}
 // {{{ Sabotage phase
@@ -224,10 +251,15 @@ impl SabotagePhase {
         Self { edict_choices }
     }
 
+    /// Returns true if the given player has played the `Sabotage` edict.
+    #[inline(always)]
     fn sabotage_status(&self, player: Player) -> bool {
         player.select(self.edict_choices) == Edict::Sabotage
     }
 
+    /// Returns a pair where the element coresponding to some player is true
+    /// if and only if `self.sabotage_status(player)`;
+    #[inline(always)]
     fn sabotage_statuses(&self) -> Pair<bool> {
         self.edict_choices.map(|e| e == Edict::Sabotage)
     }
@@ -252,28 +284,29 @@ impl Phase for SabotagePhase {
     fn reveal_count(&self, state: &KnownState) -> usize {
         RevealIndex::sabotage_phase_count(
             self.sabotage_statuses(),
-            state.forced_seer_player(),
+            state.last_creature_revealer(),
             state.graveyard,
         )
     }
 
-    fn advance_state(
+    fn advance_phase<S: KnownStateEssentials>(
         &self,
-        state: &KnownState,
+        state: &S,
         reveal_index: RevealIndex,
-    ) -> TurnResult<(Self::Next, KnownState)> {
-        let (sabotage_choices, revealed_creature) = reveal_index
-            .decode_sabotage_phase_reveal(
-                self.sabotage_statuses(),
-                state.forced_seer_player(),
-                state.graveyard,
-            )
-            .unwrap();
+    ) -> Option<Self::Next> {
+        let (sabotage_choices, revealed_creature) = reveal_index.decode_sabotage_phase_reveal(
+            self.sabotage_statuses(),
+            state.last_creature_revealer(),
+            state.graveyard(),
+        )?;
 
-        TurnResult::Unfinished((
-            SeerPhase::new(self.edict_choices, sabotage_choices, revealed_creature),
-            *state,
-        ))
+        let next = SeerPhase::new(self.edict_choices, sabotage_choices, revealed_creature);
+
+        Some(next)
+    }
+
+    fn advance_state(&self, state: &KnownState, _: RevealIndex) -> TurnResult<KnownState> {
+        TurnResult::Unfinished(*state)
     }
 
     fn valid_hidden_states(
@@ -313,8 +346,7 @@ impl Phase for SabotagePhase {
         })?;
 
         let choices = hidden.try_map(|h| h.choice)?;
-        let revealed = state
-            .forced_seer_player()
+        let revealed = (!state.last_creature_revealer())
             .select(choices)
             .into_iter()
             .exactly_one()
@@ -329,12 +361,16 @@ impl Phase for SabotagePhase {
 
         let reveal_index = RevealIndex::encode_sabotage_phase_reveal(
             guesses,
-            state.forced_seer_player(),
+            state.last_creature_revealer(),
             revealed,
             state.graveyard(),
         )?;
 
         Some((state, hidden_info, reveal_index))
+    }
+
+    fn hidden_index_decoding_info(&self) -> hidden_index::DecodingInfo {
+        PerPhaseInfo::Sabotage((), ())
     }
 }
 // }}}
@@ -357,11 +393,6 @@ impl SeerPhase {
             revealed_creature,
         }
     }
-
-    fn graveyard(&self, mut graveyard: CreatureSet) -> CreatureSet {
-        graveyard.insert(self.revealed_creature);
-        graveyard
-    }
 }
 
 impl Phase for SeerPhase {
@@ -381,20 +412,24 @@ impl Phase for SeerPhase {
     }
 
     fn reveal_count(&self, state: &KnownState) -> usize {
-        RevealIndex::seer_phase_count(self.graveyard(state.graveyard))
+        RevealIndex::seer_phase_count(state.graveyard)
     }
 
-    fn advance_state(
+    fn advance_phase<S: KnownStateEssentials>(&self, _: &S, _: RevealIndex) -> Option<Self::Next> {
+        Some(MainPhase::new())
+    }
+
+    fn battle_context(
         &self,
         state: &KnownState,
         reveal_index: RevealIndex,
-    ) -> TurnResult<(Self::Next, KnownState)> {
+    ) -> Option<BattleContext> {
         let seer_player_creature = reveal_index
-            .decode_seer_phase_reveal(self.graveyard(state.graveyard))
+            .decode_seer_phase_reveal(state.graveyard, self.revealed_creature)
             .unwrap();
 
         let main_choices = state
-            .forced_seer_player()
+            .last_creature_revealer()
             .order_as([seer_player_creature, self.revealed_creature])
             .into_iter()
             .zip(self.edict_choices)
@@ -408,9 +443,23 @@ impl Phase for SeerPhase {
             state: *state,
         };
 
-        match context.advance_known_state().1 {
+        Some(context)
+    }
+
+    // TODO: this can fail!
+    fn advance_state(
+        &self,
+        state: &KnownState,
+        reveal_index: RevealIndex,
+    ) -> TurnResult<KnownState> {
+        match self
+            .battle_context(state, reveal_index)
+            .unwrap()
+            .advance_known_state()
+            .1
+        {
             TurnResult::Finished(score) => TurnResult::Finished(score),
-            TurnResult::Unfinished(state) => TurnResult::Unfinished((MainPhase::new(), state)),
+            TurnResult::Unfinished(state) => TurnResult::Unfinished(state),
         }
     }
 
@@ -418,7 +467,7 @@ impl Phase for SeerPhase {
         &self,
         state: KnownStateSummary,
     ) -> impl Iterator<Item = Pair<hidden_index::EncodingInfo>> {
-        let seer_player = state.forced_seer_player();
+        let seer_player = state.last_creature_revealer();
         let revealed_creature = self.revealed_creature;
         let possibilities = !state.graveyard - revealed_creature;
 
@@ -469,8 +518,9 @@ impl Phase for SeerPhase {
         })?;
 
         let reveal_index = RevealIndex::encode_seer_phase_reveal(
-            state.forced_seer_player().select(final_choices),
+            state.last_creature_revealer().select(final_choices),
             state.graveyard(),
+            self.revealed_creature,
         )?;
 
         let graveyard = {
@@ -512,6 +562,10 @@ impl Phase for SeerPhase {
         let new_state = KnownStateSummary::new(edicts, graveyard, seer_player);
 
         Some((new_state, hidden_info, reveal_index))
+    }
+
+    fn hidden_index_decoding_info(&self) -> hidden_index::DecodingInfo {
+        PerPhaseInfo::Seer((), (), self.revealed_creature)
     }
 }
 // }}}

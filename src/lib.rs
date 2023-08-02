@@ -12,6 +12,7 @@
 #![feature(array_methods)]
 #![feature(return_position_impl_trait_in_trait)]
 #![feature(unchecked_math)]
+#![feature(get_many_mut)]
 #![allow(dead_code)]
 
 pub mod ai;

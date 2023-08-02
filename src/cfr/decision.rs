@@ -1,14 +1,14 @@
-#![allow(dead_code)]
-
-use std::mem::size_of;
-use std::u8;
-
 use crate::game::known_state::KnownState;
-use crate::game::types::{Player, Score};
+use crate::game::known_state_summary::KnownStateSummary;
+use crate::game::simulate::BattleContext;
+use crate::game::types::Score;
 use crate::helpers::pair::{are_equal, Pair};
 use crate::helpers::{normalize_vec, roulette};
 use bumpalo::Bump;
 use rand::Rng;
+use std::mem::size_of;
+
+use super::hidden_index::HiddenIndex;
 
 // {{{ Helper types
 /// Utility is the quantity players attempt to maximize.
@@ -28,16 +28,13 @@ pub struct DecisionVector<'a> {
     /// Sum of every strategy devised so far during training.
     /// Unintuitively, the current strategy doesn't approach
     /// optimal play, but the sum of devised strategies does!
-    strategy_sum: &'a mut [f32],
+    pub strategy_sum: &'a mut [f32],
 
     /// Regret accumulated during training (so far).
-    regret_sum: &'a mut [f32],
+    pub regret_sum: &'a mut [f32],
 
     /// Cached value of the positive elements in the regret_sum vector.
     regret_positive_magnitude: f32,
-
-    /// The probabilities of each player taking the actions required to reach this state.
-    realization_weights: (Probability, Probability),
 }
 
 impl<'a> DecisionVector<'a> {
@@ -50,7 +47,6 @@ impl<'a> DecisionVector<'a> {
             regret_sum,
             regret_positive_magnitude: 0.0,
             strategy_sum,
-            realization_weights: (0.0, 0.0),
         }
     }
 
@@ -77,6 +73,22 @@ impl<'a> DecisionVector<'a> {
             f32::max(self.regret_sum[index], 0.0) / self.regret_positive_magnitude
         } else {
             1.0 / (self.len() as f32)
+        }
+    }
+
+    /// Attempt to compute the current strategy on a node which might not be there.
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - The index of the strategy to compute
+    #[inline(always)]
+    pub fn try_strategy(node: Option<&Self>, index: usize) -> f32 {
+        match node {
+            None => {
+                debug_assert_eq!(index, 0);
+                1.0
+            }
+            Some(node) => node.strategy(index),
         }
     }
 
@@ -131,6 +143,16 @@ pub enum DecisionMatrix<'a> {
 }
 
 impl<'a> DecisionMatrix<'a> {
+    /// Indexes the matrix, returning `None` if it is trivial. That is, it returns
+    /// `None` when the player should be treated as having a single decision they can
+    /// (and will) take with probability `1`.
+    pub fn get_node_mut(&mut self, index: HiddenIndex) -> Option<&mut DecisionVector<'a>> {
+        match self {
+            Self::Trivial => None,
+            Self::Expanded(vec) => Some(&mut vec[index.0]),
+        }
+    }
+
     pub fn estimate_alloc(matrix_size: usize, vector_size: usize) -> usize {
         size_of::<Self>()
             + if vector_size == 1 {
@@ -247,54 +269,49 @@ impl<'a> DecisionMatrices<'a> {
             hidden_counts
                 .into_iter()
                 .zip(decision_counts)
-                .map(|(hidden, decision)| {
-                    DecisionMatrix::estimate_weight_storage(hidden, decision)
-                })
+                .map(|(hidden, decision)| DecisionMatrix::estimate_weight_storage(hidden, decision))
                 .sum()
         }
     }
 
     /// Compute the number of choices each player has.
-    pub fn decision_count(&self) -> Pair<usize> {
+    pub fn decision_counts(&self) -> Pair<usize> {
         match self {
             Self::Symmetrical(matrix) => [matrix.len(); 2],
             Self::Asymmetrical(matrices) => matrices.each_ref().map(|m| m.len()),
         }
     }
+
+    /// Gets the node of a certain player at a certain index.
+    ///
+    /// Conceptually, this is like calling `.get_node_mut` on the individual
+    /// matrices (although the matrices might not be "individual" if the game
+    /// state is symmetric).
+    pub fn get_nodes_mut(
+        &mut self,
+        [li, ri]: Pair<HiddenIndex>,
+    ) -> Pair<Option<&mut DecisionVector<'a>>> {
+        match self {
+            Self::Asymmetrical([left, right]) => [left.get_node_mut(li), right.get_node_mut(ri)],
+            Self::Symmetrical(matrix) => match matrix {
+                DecisionMatrix::Trivial => [None, None],
+                DecisionMatrix::Expanded(vec) => vec.get_many_mut([li.0, ri.0]).unwrap().map(Some),
+            },
+        }
+    }
 }
 // }}}
 // {{{ Explored scope
-// {{{ Extra info
-/// Information we need to keep track of for main phases.
-#[derive(Debug)]
-pub struct MainExtraInfo {
-    pub edict_counts: (u8, u8),
-}
-
-/// Information we need to keep track of for sabotage phases.
-#[derive(Debug)]
-pub struct SabotageExtraInfo {
-    /// The player about to enter a seer phase.
-    /// If neither players is entering one,
-    /// the value of this does not matter.
-    pub seer_player: Player,
-}
-// }}}
-
-/// Holds additional information about the current scope we are in.
-/// This information depends on the type of phase the scope represents.
-#[derive(Debug)]
-pub enum ExploredScopeExtraInfo {
-    Main(MainExtraInfo),
-    Sabotage(SabotageExtraInfo),
-    Seer,
-}
-
 /// An explored scope is a scope where all the game rules have
 /// been unrolled and all the game states have been created.
 pub struct ExploredScope<'a> {
     /// Describes what kind of scopes we are in.
-    // pub kind: ExploredScopeExtraInfo,
+    #[cfg(debug_assertions)]
+    pub summary: KnownStateSummary,
+
+    /// Describes what kind of scopes we are in.
+    #[cfg(debug_assertions)]
+    pub context: Option<BattleContext>,
 
     /// The decision matrix holds all the weights generated by training.
     pub matrices: DecisionMatrices<'a>,

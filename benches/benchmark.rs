@@ -1,16 +1,20 @@
-use std::time::Duration;
-
+use bumpalo::Bump;
 use criterion::{criterion_group, criterion_main, Criterion};
-use echo::{
-    cfr::generate::EstimationContext,
-    game::{battlefield::Battlefield, known_state::KnownState},
-    helpers::bitfield::{Bitfield, Bitfield16},
-};
+use echo::cfr::generate::{EstimationContext, GenerationContext};
+use echo::cfr::train::TrainingContext;
+use echo::game::battlefield::Battlefield;
+use echo::game::creature::Creature;
+use echo::game::known_state::KnownState;
+use echo::game::known_state_summary::KnownStateEssentials;
+use echo::helpers::bitfield::{Bitfield, Bitfield16};
+use std::time::Duration;
 
 pub fn subsets_of_size(c: &mut Criterion) {
     let mut group = c.benchmark_group("expensive");
     group.sample_size(10);
     group.measurement_time(Duration::from_secs(30));
+
+    // {{{ Subsets of size
     group.bench_function("subsets of size", |b| {
         b.iter(|| {
             let mut res = 0;
@@ -24,7 +28,8 @@ pub fn subsets_of_size(c: &mut Criterion) {
             res
         })
     });
-
+    // }}}
+    // {{{ Estimate first two turns
     group.bench_function("estimate first two turns", |b| {
         b.iter(|| {
             let state = KnownState::new_starting([Battlefield::Plains; 4]);
@@ -33,6 +38,29 @@ pub fn subsets_of_size(c: &mut Criterion) {
             estimator.estimate()
         })
     });
+    // }}}
+    // {{{ Generate and train last two turns
+    group.bench_function("train last two turns", |b| {
+        b.iter(|| {
+            // {{{ State creation
+            let mut state = KnownState::new_starting([Battlefield::Plains; 4]);
+            state.battlefields.current = 2;
+            for creature in Creature::CREATURES.into_iter().take(4) {
+                state.graveyard.insert(creature);
+            }
+            // }}}
+            // {{{ Generation
+            let allocator = Bump::new();
+            let generator = GenerationContext::new(2, state, &allocator);
+            let mut scope = generator.generate();
+            // }}}
+            // {{{ Training
+            let ctx = TrainingContext::new();
+            ctx.train(&mut scope, state.to_summary(), 10000);
+            // }}}
+        })
+    });
+    // }}}
 
     group.finish();
 }

@@ -1,3 +1,4 @@
+use crate::cfr::decision::Utility;
 use crate::helpers::pair::{conditional_swap, Pair};
 use std::ops::Add;
 use std::ops::Neg;
@@ -65,7 +66,7 @@ impl Player {
     }
 
     /// Swaps a pair such that:
-    /// 
+    ///
     /// ```ignore
     /// pair.0 ==    player.select(player.order_as(pair))
     /// pair.1 == (!player).select(player.order_as(pair))
@@ -109,6 +110,20 @@ mod player_tests {
 // - 0 => draw
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug, Default)]
 pub struct Score(pub i8);
+
+impl Score {
+    /// Convert score to utlity — the value training attempts to maximize.
+    #[inline(always)]
+    pub fn to_utility(self) -> Utility {
+        if self.0 > 0 {
+            1.0
+        } else if self.0 < 0 {
+            -1.0
+        } else {
+            0.0
+        }
+    }
+}
 
 impl Add<i8> for Score {
     type Output = Self;
