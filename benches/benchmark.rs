@@ -4,6 +4,7 @@ use echo::cfr::generate::{EstimationContext, GenerationContext};
 use echo::cfr::train::TrainingContext;
 use echo::game::battlefield::Battlefield;
 use echo::game::creature::Creature;
+use echo::game::edict::Edict;
 use echo::game::known_state::KnownState;
 use echo::game::known_state_summary::KnownStateEssentials;
 use echo::helpers::bitfield::{Bitfield, Bitfield16};
@@ -48,6 +49,12 @@ pub fn subsets_of_size(c: &mut Criterion) {
             for creature in Creature::CREATURES.into_iter().take(4) {
                 state.graveyard.insert(creature);
             }
+
+            for state in state.player_states.iter_mut() {
+                for edict in Edict::EDICTS.into_iter().take(2) {
+                    state.edicts.remove(edict);
+                }
+            }
             // }}}
             // {{{ Generation
             let allocator = Bump::new();
@@ -56,7 +63,7 @@ pub fn subsets_of_size(c: &mut Criterion) {
             // }}}
             // {{{ Training
             let ctx = TrainingContext::new();
-            ctx.train(&mut scope, state.to_summary(), 10000);
+            ctx.train(&mut scope, state.to_summary(), 10);
             // }}}
         })
     });
