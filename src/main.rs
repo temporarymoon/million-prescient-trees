@@ -13,6 +13,7 @@ use echo::helpers::bitfield::Bitfield;
 use std::println;
 use std::time::Instant;
 
+// {{{ Dumb size conversion functions
 fn mb_to_b(mb: usize) -> usize {
     mb * 1024 * 1024
 }
@@ -28,7 +29,8 @@ fn b_to_mb(b: usize) -> usize {
 fn b_to_gb(b: usize) -> usize {
     b_to_mb(b) / 1024
 }
-
+// }}}
+// {{{ Simple generation/estimating routine
 fn simple_generation(from: usize, turns: usize, generate: bool) {
     let start = Instant::now();
     let capacity = mb_to_b(4096);
@@ -41,11 +43,18 @@ fn simple_generation(from: usize, turns: usize, generate: bool) {
 
     let start = Instant::now();
     let mut state = KnownState::new_starting([Battlefield::Plains; 4]);
-    state.battlefields.all[3 - from] = Battlefield::LastStrand;
+    state.battlefields.all[3] = Battlefield::LastStrand;
+    state.battlefields.current = from;
 
     for i in 0..from {
         state.graveyard.insert(Creature::CREATURES[2 * i]);
         state.graveyard.insert(Creature::CREATURES[2 * i + 1]);
+    }
+
+    for state in state.player_states.iter_mut() {
+        for edict in Edict::EDICTS.into_iter().take(from) {
+            state.edicts.remove(edict);
+        }
     }
 
     let generator = GenerationContext::new(turns, state, &allocator);
@@ -76,30 +85,31 @@ fn simple_generation(from: usize, turns: usize, generate: bool) {
     );
     println!("{stats:#?}");
 }
+// }}}
 
 fn main() {
-    // simple_generation(0, 2, false);
+    simple_generation(2, 2, false);
 
-    // {{{ State creation
-    let mut state = KnownState::new_starting([Battlefield::Plains; 4]);
-    state.battlefields.current = 2;
-    for creature in Creature::CREATURES.into_iter().take(4) {
-        state.graveyard.insert(creature);
-    }
-
-    for state in state.player_states.iter_mut() {
-        for edict in Edict::EDICTS.into_iter().take(2) {
-            state.edicts.remove(edict);
-        }
-    }
-    // }}}
-    // {{{ Generation
-    let allocator = Bump::new();
-    let generator = GenerationContext::new(2, state, &allocator);
-    let mut scope = generator.generate();
-    // }}}
-    // {{{ Training
-    let ctx = TrainingContext::new();
-    ctx.train(&mut scope, state.to_summary(), 10000);
-    // }}}
+    // // {{{ State creation
+    // let mut state = KnownState::new_starting([Battlefield::Plains; 4]);
+    // state.battlefields.current = 2;
+    // for creature in Creature::CREATURES.into_iter().take(4) {
+    //     state.graveyard.insert(creature);
+    // }
+    //
+    // for state in state.player_states.iter_mut() {
+    //     for edict in Edict::EDICTS.into_iter().take(2) {
+    //         state.edicts.remove(edict);
+    //     }
+    // }
+    // // }}}
+    // // {{{ Generation
+    // let allocator = Bump::new();
+    // let generator = GenerationContext::new(2, state, &allocator);
+    // let mut scope = generator.generate();
+    // // }}}
+    // // {{{ Training
+    // let ctx = TrainingContext::new();
+    // ctx.train(&mut scope, state.to_summary(), 10000);
+    // // }}}
 }

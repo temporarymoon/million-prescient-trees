@@ -124,6 +124,7 @@ pub struct HiddenState {
 }
 
 impl HiddenState {
+    #[inline(always)]
     pub fn new(hand: CreatureSet, choice: Option<CreatureSet>) -> Self {
         Self { hand, choice }
     }
@@ -132,6 +133,7 @@ impl HiddenState {
     /// `Self` (the data returned from decoding a hidden index).
     ///
     /// This is very useful for testing.
+    #[inline(always)]
     pub fn from_encoding_info(info: EncodingInfo) -> Self {
         let (hand, choice) = info.get_pre_seer();
         Self { hand, choice }
@@ -148,6 +150,7 @@ impl HiddenIndex {
     // {{{ Codec
     /// Returns true if a hidden index encoding under the given conditions
     /// would contain info about the current player's creature choices.
+    #[inline(always)]
     fn index_contains_choice<S: KnownStateEssentials>(
         state: &S,
         player: Player,
