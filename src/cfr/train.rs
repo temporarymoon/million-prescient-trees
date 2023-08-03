@@ -16,7 +16,7 @@ impl TrainingContext {
     }
 
     pub fn train(&self, scope: &mut Scope, state: KnownStateSummary, iterations: usize) {
-        let probabilities: Pair<Probability> = [0.0, 0.0];
+        let probabilities: Pair<Probability> = [1.0; 2];
         for i in 0..iterations {
             println!("Iteration {i}");
             let phase = MainPhase::new();
