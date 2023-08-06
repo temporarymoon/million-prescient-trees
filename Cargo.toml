@@ -19,7 +19,7 @@ paste = "1.0.14"
 egui = "0.22.0"
 eframe = { version = "0.22.0", features=["wayland"] }
 serde = "1.0.182"
-image = {version = "0.24.6", features=["jpeg"] }
+image = {version = "0.24.6", features=["jpeg", "png"] }
 egui_extras = { version = "0.22.0", features=["image"] }
 
 [dev-dependencies]

@@ -4,6 +4,7 @@ use crate::{game::edict::Edict, helpers::try_from_iter::TryCollect};
 
 pub struct AppTextures {
     pub edicts: [RetainedImage; 5],
+    pub card_back: RetainedImage,
 }
 
 const EDICT_TEXTURES: [&[u8]; 5] = [
@@ -13,6 +14,8 @@ const EDICT_TEXTURES: [&[u8]; 5] = [
     include_bytes!("../../assets/edicts/gambit.jpeg"),
     include_bytes!("../../assets/edicts/ambush.jpeg"),
 ];
+
+const CARD_BACK: &[u8] = include_bytes!("../../assets/cardback.png");
 
 impl AppTextures {
     pub fn new() -> Self {
@@ -26,6 +29,8 @@ impl AppTextures {
             .attempt_collect()
             .unwrap();
 
-        Self { edicts }
+        let card_back = RetainedImage::from_image_bytes("card_back", CARD_BACK).unwrap();
+
+        Self { edicts, card_back }
     }
 }

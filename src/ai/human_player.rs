@@ -120,6 +120,8 @@ impl PlayerGUI {
     fn draw_opt_edict(&self, ui: &mut Ui, edict: Option<Edict>) {
         if let Some(edict) = edict {
             Self::draw_edict(self, ui, edict)
+        } else {
+            self.textures.card_back.show(ui);
         }
     }
 
@@ -129,9 +131,11 @@ impl PlayerGUI {
     }
 
     #[inline(always)]
-    fn draw_opt_creature(ui: &mut Ui, creature: Option<Creature>) {
+    fn draw_opt_creature(&self, ui: &mut Ui, creature: Option<Creature>) {
         if let Some(creature) = creature {
             Self::draw_creature(ui, creature)
+        } else {
+            self.textures.card_back.show(ui);
         }
     }
 
@@ -167,9 +171,9 @@ impl PlayerGUI {
                 let [my_sabotage, your_sabotage] = self.sabotage_choices();
 
                 self.draw_opt_edict(ui, your_edict);
-                Self::draw_opt_creature(ui, your_sabotage);
+                self.draw_opt_creature(ui, your_sabotage);
 
-                Self::draw_opt_creature(ui, my_sabotage);
+                self.draw_opt_creature(ui, my_sabotage);
                 self.draw_opt_edict(ui, my_edict);
 
                 Self::draw_creature_set(ui, self.my_creatures().unwrap_or_default());
@@ -213,8 +217,8 @@ impl PlayerGUI {
                         if let Some([me, you]) = self.history[index] {
                             Self::draw_creature(ui, me.0);
                             self.draw_edict(ui, me.1);
-                            Self::draw_opt_creature(ui, me.2);
-                            Self::draw_opt_creature(ui, you.2);
+                            self.draw_opt_creature(ui, me.2);
+                            self.draw_opt_creature(ui, you.2);
                             self.draw_edict(ui, you.1);
                             Self::draw_creature(ui, you.0);
                         }
