@@ -1,11 +1,15 @@
 use crate::{
-    helpers::bitfield::{Bitfield, Bitfield16},
+    helpers::{
+        bitfield::{Bitfield, Bitfield16},
+        pair::Pair,
+    },
     make_bitfield,
 };
 use std::{
     convert::TryFrom,
     debug_assert,
     fmt::{self, Display},
+    todo,
 };
 
 // {{{ Creature
@@ -24,6 +28,7 @@ pub enum Creature {
     Monarch,
 }
 
+use rand::Rng;
 use Creature::*;
 
 impl Creature {

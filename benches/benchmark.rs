@@ -63,7 +63,7 @@ pub fn subsets_of_size(c: &mut Criterion) {
             // }}}
             // {{{ Training
             let ctx = TrainingContext::new();
-            ctx.train(&mut scope, state.to_summary(), 10);
+            ctx.cfr(&mut scope, state.to_summary(), 10);
             // }}}
         })
     });

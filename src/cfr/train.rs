@@ -1,3 +1,7 @@
+use rand::distributions::Uniform;
+use rand::prelude::Distribution;
+use rand::Rng;
+
 use super::decision::{DecisionVector, Probability, Scope, Utility};
 use super::hidden_index::{self, HiddenIndex, HiddenState};
 use super::phase::{MainPhase, Phase};
@@ -15,14 +19,42 @@ impl TrainingContext {
         Self {}
     }
 
-    pub fn train(&self, scope: &mut Scope, state: KnownStateSummary, iterations: usize) {
+    pub fn cfr(&self, scope: &mut Scope, state: KnownStateSummary, iterations: usize) {
         let probabilities: Pair<Probability> = [1.0; 2];
+        let phase = MainPhase::new();
         for i in 0..iterations {
             println!("Iteration {i}");
-            let phase = MainPhase::new();
+
             for hidden in phase.valid_hidden_states(state) {
                 self.train_phase(scope, phase, state, hidden, probabilities);
             }
+        }
+    }
+
+    /// Chance-sampling counterfactual regret minimization.
+    ///
+    /// Similar to `cfr`, but focuses on a single (random) initial set of hidden indices.
+    pub fn cs_cfr<R: Rng>(
+        &self,
+        rng: &mut R,
+        scope: &mut Scope,
+        state: KnownStateSummary,
+        iterations: usize,
+    ) {
+        let probabilities: Pair<Probability> = [1.0; 2];
+        let phase = MainPhase::new();
+
+        // TODO: consider not allocating?
+        let hidden_vec: Vec<_> = phase.valid_hidden_states(state).collect();
+        let distribution = Uniform::new(0, hidden_vec.len());
+
+        for i in 0..iterations {
+            if i % 10 == 0 {
+                println!("Iteration {i}");
+            }
+
+            let index = distribution.sample(rng);
+            self.train_phase(scope, phase, state, hidden_vec[index], probabilities);
         }
     }
 
@@ -44,6 +76,12 @@ impl TrainingContext {
                     "Something went wrong with simulating {:?}",
                     scope.context
                 );
+
+                if Self::is_almost_zero(probabilities[0]) || Self::is_almost_zero(probabilities[1])
+                {
+                    return Some(0.0);
+                };
+
                 // {{{ Prepare data
                 let counts = scope.matrices.decision_counts();
                 let hidden_states = hidden.map(HiddenState::from_encoding_info);
@@ -53,11 +91,11 @@ impl TrainingContext {
                 let mut nodes = scope.matrices.get_nodes_mut(indices);
                 let mut total_utility: Utility = 0.0;
                 // }}}
-                // {{{ Compute strategy
-                for node in &mut nodes {
+                // {{{ Compute strategies
+                for (i, node) in nodes.iter_mut().enumerate() {
                     if let Some(node) = node {
                         node.recompute_regret_magnitude();
-                        node.update_strategy_sum();
+                        node.update_strategy_sum(probabilities[i]);
                     }
                 }
                 // }}}
@@ -103,8 +141,10 @@ impl TrainingContext {
 
                             // {{{ Add utility to your regret
                             if let Some(node) = &mut nodes[1] {
-                                node.regret_sum[index] +=
-                                    my_probability * probabilities[0] * future_utility;
+                                node.accumulate_regret(
+                                    index,
+                                    my_probability * probabilities[0] * future_utility,
+                                );
                             }
                             // }}}
                         }
@@ -117,7 +157,7 @@ impl TrainingContext {
 
                     // {{{ Add utility to my regret
                     if let Some(node) = &mut nodes[0] {
-                        node.regret_sum[index] += probabilities[1] * future_utility;
+                        node.accumulate_regret(index, probabilities[1] * future_utility);
                     }
                     // }}}
                 }
@@ -125,13 +165,13 @@ impl TrainingContext {
                 // {{{ Subtract total utility from regrets
                 if let Some(node) = &mut nodes[0] {
                     for index in 0..counts[0] {
-                        node.regret_sum[index] -= probabilities[1] * total_utility;
+                        node.accumulate_regret(index, probabilities[1] * total_utility);
                     }
                 }
 
                 if let Some(node) = &mut nodes[1] {
                     for index in 0..counts[1] {
-                        node.regret_sum[index] -= probabilities[0] * total_utility;
+                        node.accumulate_regret(index, probabilities[0] * total_utility);
                     }
                 }
                 // }}}
@@ -139,5 +179,12 @@ impl TrainingContext {
                 Some(total_utility)
             }
         }
+    }
+
+    /// With the goal of trying to avoid floating point arithmetic weirdness,
+    /// we declare things to be equal to 0 if they are "close enough"
+    #[inline(always)]
+    fn is_almost_zero(num: Probability) -> bool {
+        num.abs() < 0.00000001
     }
 }

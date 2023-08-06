@@ -68,11 +68,12 @@ impl<'a> DecisionVector<'a> {
     ///
     /// * `index` - The index of the strategy to compute
     #[inline(always)]
-    pub fn strategy(&self, index: usize) -> f32 {
+    pub fn strategy(&self, index: usize) -> Probability {
         if self.regret_positive_magnitude > 0.0 {
-            f32::max(self.regret_sum[index], 0.0) / self.regret_positive_magnitude
+            let res = f32::max(self.regret_sum[index], 0.0) / self.regret_positive_magnitude;
+            res as Probability
         } else {
-            1.0 / (self.len() as f32)
+            1.0 / (self.len() as Probability)
         }
     }
 
@@ -82,7 +83,7 @@ impl<'a> DecisionVector<'a> {
     ///
     /// * `index` - The index of the strategy to compute
     #[inline(always)]
-    pub fn try_strategy(node: Option<&Self>, index: usize) -> f32 {
+    pub fn try_strategy(node: Option<&Self>, index: usize) -> Probability {
         match node {
             None => {
                 debug_assert_eq!(index, 0);
@@ -93,10 +94,17 @@ impl<'a> DecisionVector<'a> {
     }
 
     /// Update the strategy sum with the current strategy.
-    pub fn update_strategy_sum(&mut self) {
+    #[inline(always)]
+    pub fn update_strategy_sum(&mut self, probability: Probability) {
         for i in 0..self.len() {
-            self.strategy_sum[i] += self.strategy(i);
+            self.strategy_sum[i] += (probability * self.strategy(i)) as f32;
         }
+    }
+
+    /// Accumulates some regret for a given decision.
+    #[inline(always)]
+    pub fn accumulate_regret(&mut self, index: usize, amount: Utility) {
+        self.regret_sum[index] += amount as f32;
     }
 
     /// Updates the cached regret magnitude once the regret sum has been changed.
