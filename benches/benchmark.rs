@@ -62,7 +62,7 @@ pub fn subsets_of_size(c: &mut Criterion) {
             let mut scope = generator.generate();
             // }}}
             // {{{ Training
-            let ctx = TrainingContext::new();
+            let ctx = TrainingContext::new(false);
             ctx.cfr(&mut scope, state.to_summary(), 10);
             // }}}
         })

@@ -1,16 +1,8 @@
-use crate::{
-    helpers::{
-        bitfield::{Bitfield, Bitfield16},
-        pair::Pair,
-    },
-    make_bitfield,
-};
-use std::{
-    convert::TryFrom,
-    debug_assert,
-    fmt::{self, Display},
-    todo,
-};
+use crate::helpers::bitfield::{Bitfield, Bitfield16};
+use crate::make_bitfield;
+use std::convert::TryFrom;
+use std::debug_assert;
+use std::fmt::{self, Display};
 
 // {{{ Creature
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug, PartialOrd, Ord)]
@@ -28,7 +20,6 @@ pub enum Creature {
     Monarch,
 }
 
-use rand::Rng;
 use Creature::*;
 
 impl Creature {

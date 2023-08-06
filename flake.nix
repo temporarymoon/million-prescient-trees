@@ -1,4 +1,5 @@
-{ inputs = {
+{
+  inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/release-23.05";
     flake-utils.url = "github:numtide/flake-utils";
   };
@@ -15,6 +16,16 @@
               rustup
               cargo
               gnuplot
+            ];
+
+            LD_LIBRARY_PATH = with pkgs; lib.makeLibraryPath [
+              libGL
+              libxkbcommon
+              wayland
+              xorg.libX11
+              xorg.libXcursor
+              xorg.libXi
+              xorg.libXrandr
             ];
           };
         });

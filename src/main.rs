@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use bumpalo::Bump;
+use echo::ai::human_player::PlayerGUI;
 use echo::cfr::decision_index::DecisionIndex;
 use echo::cfr::generate::EstimationContext;
 use echo::cfr::generate::GenerationContext;
@@ -90,10 +91,8 @@ fn simple_generation(from: usize, turns: usize, generate: bool) {
     println!("{stats:#?}");
 }
 // }}}
-
-fn main() {
-    // simple_generation(2, 2, false);
-
+// {{{ Simple training routine
+fn simple_trainig() {
     // {{{ State creation
     let mut state = KnownState::new_starting([Battlefield::Plains; 4]);
     state.battlefields.current = 2;
@@ -113,8 +112,8 @@ fn main() {
     let mut scope = generator.generate();
     // }}}
     // {{{ Training
-    let ctx = TrainingContext::new(true);
-    let mut rng = rand::thread_rng();
+    let ctx = TrainingContext::new(false);
+    let mut _rng = rand::thread_rng();
     ctx.cfr(&mut scope, state.to_summary(), 10000);
     // ctx.cs_cfr(&mut rng, &mut scope, state.to_summary(), 100000);
     // }}}
@@ -146,4 +145,20 @@ fn main() {
         println!("Probability: {probability}. Action: {decoded:?}");
     }
     // }}}
+}
+// }}}
+// {{{ Simple gui routine
+fn show_gui() -> eframe::Result<()> {
+    let options = eframe::NativeOptions::default();
+    eframe::run_native(
+        "million prescient trees",
+        options,
+        Box::new(|cc| Box::new(PlayerGUI::new(cc))),
+    )
+}
+// }}}
+
+fn main() {
+    // simple_generation(2, 2, false);
+    show_gui().unwrap()
 }

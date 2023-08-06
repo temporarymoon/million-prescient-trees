@@ -242,6 +242,7 @@ impl Phase for MainPhase {
 }
 // }}}
 // {{{ Sabotage phase
+#[derive(Debug, Clone, Copy)]
 pub struct SabotagePhase {
     pub edict_choices: Pair<Edict>,
 }
@@ -375,6 +376,7 @@ impl Phase for SabotagePhase {
 }
 // }}}
 // {{{ Seer phase
+#[derive(Debug, Clone, Copy)]
 pub struct SeerPhase {
     pub edict_choices: Pair<Edict>,
     pub sabotage_choices: Pair<SabotagePhaseChoice>,
@@ -681,4 +683,14 @@ mod tests {
     }
     // }}}
 }
+// }}}
+// {{{ Some phase
+#[derive(Debug, Clone, Copy)]
+pub enum PerPhase<Main, Sabotage, Seer> {
+    Main(Main),
+    Sabotage(Sabotage),
+    Seer(Seer),
+}
+
+pub type SomePhase = PerPhase<MainPhase, SabotagePhase, SeerPhase>;
 // }}}
