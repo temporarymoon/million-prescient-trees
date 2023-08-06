@@ -1,14 +1,18 @@
 #![allow(dead_code)]
 
 use bumpalo::Bump;
+use echo::cfr::decision_index::DecisionIndex;
 use echo::cfr::generate::EstimationContext;
 use echo::cfr::generate::GenerationContext;
+use echo::cfr::hidden_index::HiddenIndex;
+use echo::cfr::hidden_index::PerPhaseInfo;
 use echo::cfr::train::TrainingContext;
 use echo::game::battlefield::Battlefield;
 use echo::game::creature::Creature;
 use echo::game::edict::Edict;
 use echo::game::known_state::KnownState;
 use echo::game::known_state_summary::KnownStateEssentials;
+use echo::game::types::Player;
 use echo::helpers::bitfield::Bitfield;
 use std::println;
 use std::time::Instant;
@@ -109,9 +113,37 @@ fn main() {
     let mut scope = generator.generate();
     // }}}
     // {{{ Training
-    let ctx = TrainingContext::new();
+    let ctx = TrainingContext::new(true);
     let mut rng = rand::thread_rng();
-    // ctx.cfr(&mut scope, state.to_summary(), 10000);
-    ctx.cs_cfr(&mut rng, &mut scope, state.to_summary(), 10000);
+    ctx.cfr(&mut scope, state.to_summary(), 10000);
+    // ctx.cs_cfr(&mut rng, &mut scope, state.to_summary(), 100000);
+    // }}}
+    // {{{ Displaying
+    let player = Player::Me;
+    let hand = (!state.graveyard)
+        .subsets_of_size(state.hand_size())
+        .next()
+        .unwrap();
+    let hidden_index = HiddenIndex::encode(&state, player, PerPhaseInfo::Main(hand));
+    let vector = scope
+        .get_explored()
+        .unwrap()
+        .matrices
+        .get_matrix(player)
+        .get_node(hidden_index)
+        .unwrap();
+
+    println!("{:?}", vector.strategy_sum);
+    println!("{:?}", vector.regret_sum);
+    let strategy = vector.get_average_strategy();
+    for index in 0..vector.len() {
+        let decision = DecisionIndex(index);
+        let decoded = decision
+            .decode_main_phase_index(&state, player, hand)
+            .unwrap();
+        let probability = strategy[index];
+
+        println!("Probability: {probability}. Action: {decoded:?}");
+    }
     // }}}
 }

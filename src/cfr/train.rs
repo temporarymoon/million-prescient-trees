@@ -12,11 +12,13 @@ use crate::helpers::pair::Pair;
 use std::{debug_assert_eq, println, unreachable};
 
 // TODO: implement resetting of weights halfway through training.
-pub struct TrainingContext {}
+pub struct TrainingContext {
+    enable_pruning: bool,
+}
 
 impl TrainingContext {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(enable_pruning: bool) -> Self {
+        Self { enable_pruning }
     }
 
     pub fn cfr(&self, scope: &mut Scope, state: KnownStateSummary, iterations: usize) {
@@ -77,11 +79,6 @@ impl TrainingContext {
                     scope.context
                 );
 
-                if Self::is_almost_zero(probabilities[0]) || Self::is_almost_zero(probabilities[1])
-                {
-                    return Some(0.0);
-                };
-
                 // {{{ Prepare data
                 let counts = scope.matrices.decision_counts();
                 let hidden_states = hidden.map(HiddenState::from_encoding_info);
@@ -99,6 +96,11 @@ impl TrainingContext {
                     }
                 }
                 // }}}
+
+                if self.enable_pruning && Self::is_almost_zero(probabilities[1]) {
+                    return Some(0.0);
+                };
+
                 // {{{ First player
                 for index in 0..(counts[0]) {
                     let my_decision = DecisionIndex(index);
@@ -106,50 +108,54 @@ impl TrainingContext {
 
                     // {{{ Second player
                     let future_utility = {
-                        let mut total_utility: Utility = 0.0;
+                        if self.enable_pruning && Self::is_almost_zero(probabilities[0]) {
+                            0.0
+                        } else {
+                            let mut total_utility: Utility = 0.0;
 
-                        for index in 0..(counts[1]) {
-                            let your_decision = DecisionIndex(index);
-                            let your_probability =
-                                DecisionVector::try_strategy(nodes[1].as_deref(), index);
+                            for index in 0..(counts[1]) {
+                                let your_decision = DecisionIndex(index);
+                                let your_probability =
+                                    DecisionVector::try_strategy(nodes[1].as_deref(), index);
 
-                            // {{{ Recursive call
-                            let new_probabilities = [
-                                probabilities[0] * my_probability,
-                                probabilities[1] * your_probability,
-                            ];
+                                // {{{ Recursive call
+                                let new_probabilities = [
+                                    probabilities[0] * my_probability,
+                                    probabilities[1] * your_probability,
+                                ];
 
-                            let decisions = [my_decision, your_decision];
+                                let decisions = [my_decision, your_decision];
 
-                            let (new_state, new_hidden, reveal_index) = phase
-                                .advance_hidden_indices(state, hidden_states, decisions)
-                                .unwrap();
+                                let (new_state, new_hidden, reveal_index) = phase
+                                    .advance_hidden_indices(state, hidden_states, decisions)
+                                    .unwrap();
 
-                            let new_scope = &mut scope.next[reveal_index.0];
-                            let next_phase = phase.advance_phase(&state, reveal_index)?;
+                                let new_scope = &mut scope.next[reveal_index.0];
+                                let next_phase = phase.advance_phase(&state, reveal_index)?;
 
-                            let future_utility = -self.train_phase::<P::Next>(
-                                new_scope,
-                                next_phase,
-                                new_state,
-                                new_hidden,
-                                new_probabilities,
-                            )?;
-                            // }}}
+                                let future_utility = -self.train_phase::<P::Next>(
+                                    new_scope,
+                                    next_phase,
+                                    new_state,
+                                    new_hidden,
+                                    new_probabilities,
+                                )?;
+                                // }}}
 
-                            total_utility += your_probability * future_utility;
+                                total_utility += your_probability * future_utility;
 
-                            // {{{ Add utility to your regret
-                            if let Some(node) = &mut nodes[1] {
-                                node.accumulate_regret(
-                                    index,
-                                    my_probability * probabilities[0] * future_utility,
-                                );
+                                // {{{ Add utility to your regret
+                                if let Some(node) = &mut nodes[1] {
+                                    node.accumulate_regret(
+                                        index,
+                                        my_probability * probabilities[0] * future_utility,
+                                    );
+                                }
+                                // }}}
                             }
-                            // }}}
-                        }
 
-                        -total_utility
+                            -total_utility
+                        }
                     };
                     // }}}
 
@@ -165,13 +171,13 @@ impl TrainingContext {
                 // {{{ Subtract total utility from regrets
                 if let Some(node) = &mut nodes[0] {
                     for index in 0..counts[0] {
-                        node.accumulate_regret(index, probabilities[1] * total_utility);
+                        node.accumulate_regret(index, -probabilities[1] * total_utility);
                     }
                 }
 
                 if let Some(node) = &mut nodes[1] {
                     for index in 0..counts[1] {
-                        node.accumulate_regret(index, probabilities[0] * total_utility);
+                        node.accumulate_regret(index, -probabilities[0] * total_utility);
                     }
                 }
                 // }}}

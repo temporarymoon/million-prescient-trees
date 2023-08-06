@@ -1,7 +1,7 @@
 use crate::game::known_state::KnownState;
 use crate::game::known_state_summary::KnownStateSummary;
 use crate::game::simulate::BattleContext;
-use crate::game::types::Score;
+use crate::game::types::{Player, Score};
 use crate::helpers::pair::{are_equal, Pair};
 use crate::helpers::{normalize_vec, roulette};
 use bumpalo::Bump;
@@ -70,8 +70,7 @@ impl<'a> DecisionVector<'a> {
     #[inline(always)]
     pub fn strategy(&self, index: usize) -> Probability {
         if self.regret_positive_magnitude > 0.0 {
-            let res = f32::max(self.regret_sum[index], 0.0) / self.regret_positive_magnitude;
-            res as Probability
+            f32::max(self.regret_sum[index], 0.0) / self.regret_positive_magnitude
         } else {
             1.0 / (self.len() as Probability)
         }
@@ -158,6 +157,14 @@ impl<'a> DecisionMatrix<'a> {
         match self {
             Self::Trivial => None,
             Self::Expanded(vec) => Some(&mut vec[index.0]),
+        }
+    }
+
+    /// Similar to `get_node_mut`, but immutable.
+    pub fn get_node(&self, index: HiddenIndex) -> Option<&DecisionVector<'a>> {
+        match self {
+            Self::Trivial => None,
+            Self::Expanded(vec) => Some(&vec[index.0]),
         }
     }
 
@@ -290,7 +297,7 @@ impl<'a> DecisionMatrices<'a> {
         }
     }
 
-    /// Gets the node of a certain player at a certain index.
+    /// Gets the respective decision vectors for both players, mutably.
     ///
     /// Conceptually, this is like calling `.get_node_mut` on the individual
     /// matrices (although the matrices might not be "individual" if the game
@@ -305,6 +312,14 @@ impl<'a> DecisionMatrices<'a> {
                 DecisionMatrix::Trivial => [None, None],
                 DecisionMatrix::Expanded(vec) => vec.get_many_mut([li.0, ri.0]).unwrap().map(Some),
             },
+        }
+    }
+
+    /// Gets the decision matrix for a given player.
+    pub fn get_matrix(&self, player: Player) -> &DecisionMatrix<'a> {
+        match self {
+            Self::Symmetrical(matrix) => matrix,
+            Self::Asymmetrical(matrices) => player.select_ref(matrices),
         }
     }
 }
@@ -341,5 +356,14 @@ pub enum Scope<'a> {
     Completed(Score),
     Unexplored(UnexploredScope<'a>),
     Explored(ExploredScope<'a>),
+}
+
+impl<'a> Scope<'a> {
+    pub fn get_explored(&self) -> Option<&ExploredScope<'a>> {
+        match self {
+            Self::Explored(e) => Some(e),
+            _ => None,
+        }
+    }
 }
 // }}}

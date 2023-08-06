@@ -10,7 +10,7 @@ use itertools::Itertools;
 
 /// Used to index decision vectors.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
-pub struct DecisionIndex(pub(super) usize);
+pub struct DecisionIndex(pub usize);
 
 impl DecisionIndex {
     // {{{ Main phase
