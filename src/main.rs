@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use bumpalo::Bump;
-use echo::ai::human_player::PlayerGUI;
+use echo::ai::human_player::GUIApp;
 use echo::cfr::decision_index::DecisionIndex;
 use echo::cfr::generate::EstimationContext;
 use echo::cfr::generate::GenerationContext;
@@ -153,7 +153,7 @@ fn show_gui() -> eframe::Result<()> {
     eframe::run_native(
         "million prescient trees",
         options,
-        Box::new(|cc| Box::new(PlayerGUI::new(cc))),
+        Box::new(|cc| Box::new(GUIApp::new(cc))),
     )
 }
 // }}}

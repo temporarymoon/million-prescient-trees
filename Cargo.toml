@@ -21,6 +21,7 @@ eframe = { version = "0.22.0", features=["wayland"] }
 serde = "1.0.182"
 image = {version = "0.24.6", features=["jpeg", "png"] }
 egui_extras = { version = "0.22.0", features=["image"] }
+egui_dock = "0.6.3"
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports"] }

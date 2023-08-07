@@ -9,6 +9,7 @@ use crate::game::edict::{Edict, EdictSet};
 use crate::game::known_state::KnownState;
 use crate::game::known_state_summary::KnownStateEssentials;
 use crate::game::status_effect::{StatusEffect, StatusEffectSet};
+use crate::game::types::Player;
 use crate::helpers::bitfield::Bitfield;
 use crate::helpers::pair::Pair;
 use egui::{Grid, Ui};
@@ -31,7 +32,26 @@ struct PartialMainPhaseChoice {
     edict: Option<Edict>,
 }
 
-pub struct PlayerGUI {
+#[derive(Debug, Clone, Copy)]
+pub enum UITab {
+    CardPreview,
+    Field,
+    Effects,
+    History,
+}
+
+/// Holds all the state of the gui!
+///
+/// The reason this is different from `UIState` if because
+/// egui_dock likes to have a mut ref to both the tab tree and
+/// the main state at the same time afaik.
+pub struct GUIApp {
+    tab_tree: egui_dock::Tree<UITab>,
+    state: UIState,
+}
+
+/// State used to render the contents of the individual ui tabs.
+struct UIState {
     // Received from the agent
     state: KnownState,
     hidden: HiddenState,
@@ -40,7 +60,10 @@ pub struct PlayerGUI {
     // Internal state
     history: [Option<Pair<(Creature, Edict, Option<Creature>)>>; 4],
     partial_main_choice: Option<PartialMainPhaseChoice>,
+
+    // Ui state
     textures: AppTextures,
+
     // Communication:
     // sender: Sender<Decision>,
     // receiver: Receiver<AgentInput>,
@@ -55,7 +78,7 @@ impl EchoAgent for HumanAgent {
 }
 // }}}
 // {{{ UI implementation
-impl PlayerGUI {
+impl UIState {
     const CARD_SIZE: [f32; 2] = [50.0, 50.0];
 
     // {{{ Data helpers
@@ -126,14 +149,14 @@ impl PlayerGUI {
     }
 
     #[inline(always)]
-    fn draw_creature(ui: &mut Ui, creature: Creature) {
-        ui.label(format!("{creature:?}"));
+    fn draw_creature(&self, ui: &mut Ui, creature: Creature) {
+        self.textures.creatures[creature as usize].show(ui);
     }
 
     #[inline(always)]
     fn draw_opt_creature(&self, ui: &mut Ui, creature: Option<Creature>) {
         if let Some(creature) = creature {
-            Self::draw_creature(ui, creature)
+            self.draw_creature(ui, creature)
         } else {
             self.textures.card_back.show(ui);
         }
@@ -146,93 +169,163 @@ impl PlayerGUI {
         }
     }
 
+    /// Similar to `draw_creature_set`, but will show additional
+    /// card backs to get the set to a given size.
     #[inline(always)]
-    fn draw_creature_set(ui: &mut Ui, creatures: CreatureSet) {
+    fn draw_creature_set_of_length(&self, ui: &mut Ui, creatures: CreatureSet, len: usize) {
+        let remaining = len - creatures.len();
+
         for creature in creatures {
-            Self::draw_creature(ui, creature);
+            self.draw_creature(ui, creature);
+        }
+
+        for _ in 0..remaining {
+            self.draw_opt_creature(ui, None);
+        }
+    }
+
+    #[inline(always)]
+    fn draw_creature_set(&self, ui: &mut Ui, creatures: CreatureSet) {
+        for creature in creatures {
+            self.draw_creature(ui, creature);
         }
     }
     // }}}
+}
 
-    pub fn draw(&mut self, ui: &mut Ui) {
+impl egui_dock::TabViewer for UIState {
+    // {{{ Main drawing procedure
+    type Tab = UITab;
+
+    fn title(&mut self, tab: &mut Self::Tab) -> egui::WidgetText {
+        format!("{tab:?}").into()
+    }
+
+    fn ui(&mut self, ui: &mut Ui, tab: &mut Self::Tab) {
         let me = self.state.player_states[0];
         let you = self.state.player_states[1];
+        match tab {
+            // {{{ Field state
+            UITab::Field => {
+                ui.group(|ui| {
+                    ui.vertical(|ui| {
+                        // {{{ Prepare data
+                        let opponent_creature_possibilities =
+                            !(self.hidden.hand | self.state.graveyard);
 
-        ui.horizontal(|ui| {
-            Grid::new("field state grid").show(ui, |ui| {
-                let opponent_creature_possibilities = !(self.hidden.hand | self.state.graveyard);
+                        let [my_edict, your_edict] = self.played_edicts();
+                        let [my_sabotage, your_sabotage] = self.sabotage_choices();
+                        // }}}
+                        // {{{ Opponent's board
+                        ui.heading("Opponent's board");
 
-                self.draw_edict_set(ui, you.edicts);
-                ui.end_row();
-                Self::draw_creature_set(ui, opponent_creature_possibilities);
-                ui.end_row();
+                        ui.horizontal(|ui| {
+                            self.draw_edict_set(ui, you.edicts);
+                        });
 
-                let [my_edict, your_edict] = self.played_edicts();
-                let [my_sabotage, your_sabotage] = self.sabotage_choices();
+                        ui.horizontal(|ui| {
+                            self.draw_creature_set(ui, opponent_creature_possibilities);
+                        });
 
-                self.draw_opt_edict(ui, your_edict);
-                self.draw_opt_creature(ui, your_sabotage);
+                        Grid::new("Opponent's choices").show(ui, |ui| {
+                            ui.label("Edict");
+                            ui.label("Sabotage");
+                            ui.end_row();
+                            self.draw_opt_edict(ui, your_edict);
+                            self.draw_opt_creature(ui, your_sabotage);
+                            ui.end_row();
+                        });
+                        // }}}
+                        // {{{ Player's board
+                        ui.heading("Your board");
 
-                self.draw_opt_creature(ui, my_sabotage);
-                self.draw_opt_edict(ui, my_edict);
+                        Grid::new("Player's choices").show(ui, |ui| {
+                            ui.label("Edict");
+                            ui.label("Sabotage");
+                            ui.label("Creatures");
+                            ui.end_row();
+                            self.draw_opt_edict(ui, my_edict);
+                            self.draw_opt_creature(ui, my_sabotage);
+                            self.draw_creature_set_of_length(
+                                ui,
+                                self.my_creatures().unwrap_or_default(),
+                                self.state.creature_choice_size(Player::Me),
+                            );
+                            ui.end_row();
+                        });
 
-                Self::draw_creature_set(ui, self.my_creatures().unwrap_or_default());
-                ui.end_row();
+                        ui.horizontal(|ui| {
+                            self.draw_edict_set(ui, me.edicts);
+                        });
 
-                Self::draw_creature_set(ui, self.hidden.hand);
-                ui.end_row();
+                        ui.horizontal(|ui| {
+                            self.draw_creature_set(ui, self.hidden.hand);
+                        });
 
-                self.draw_edict_set(ui, me.edicts);
-                ui.end_row();
-            });
-
-            ui.separator();
-
-            ui.vertical(|ui| {
-                ui.heading("Your effects");
-                Self::draw_status_effect_set(ui, me.effects);
-            });
-
-            ui.vertical(|ui| {
-                ui.heading("Opponent's effects");
-                Self::draw_status_effect_set(ui, you.effects);
-            });
-
-            ui.separator();
-
-            ui.vertical(|ui| {
-                Grid::new("battlefield & history grid").show(ui, |ui| {
-                    ui.label("Battlefields");
-                    ui.label("Your creature");
-                    ui.label("Your edict");
-                    ui.label("Your sabotage");
-                    ui.label("Opponent's sabotage");
-                    ui.label("Opponent's edict");
-                    ui.label("Opponent's creature");
-                    ui.end_row();
-
-                    for index in 0..4 {
-                        Self::draw_battlefield(ui, self.state.battlefields.all[index]);
-
-                        if let Some([me, you]) = self.history[index] {
-                            Self::draw_creature(ui, me.0);
-                            self.draw_edict(ui, me.1);
-                            self.draw_opt_creature(ui, me.2);
-                            self.draw_opt_creature(ui, you.2);
-                            self.draw_edict(ui, you.1);
-                            Self::draw_creature(ui, you.0);
-                        }
-
-                        ui.end_row();
-                    }
+                        // }}}
+                    });
                 });
-            });
-        });
+            }
+            // }}}
+            // {{{ Effects
+            UITab::Effects => {
+                ui.vertical(|ui| {
+                    ui.heading("Your effects");
+                    Self::draw_status_effect_set(ui, me.effects);
+                });
+
+                ui.vertical(|ui| {
+                    ui.heading("Opponent's effects");
+                    Self::draw_status_effect_set(ui, you.effects);
+                });
+            }
+            // }}}
+            // {{{ History
+            UITab::History => {
+                ui.vertical(|ui| {
+                    Grid::new("battlefield & history grid").show(ui, |ui| {
+                        ui.label("Battlefields");
+                        ui.label("Your creature");
+                        ui.label("Your edict");
+                        ui.label("Your sabotage");
+                        ui.label("Opponent's sabotage");
+                        ui.label("Opponent's edict");
+                        ui.label("Opponent's creature");
+                        ui.end_row();
+
+                        for index in 0..4 {
+                            Self::draw_battlefield(ui, self.state.battlefields.all[index]);
+
+                            if let Some([me, you]) = self.history[index] {
+                                self.draw_creature(ui, me.0);
+                                self.draw_edict(ui, me.1);
+                                self.draw_opt_creature(ui, me.2);
+                                self.draw_opt_creature(ui, you.2);
+                                self.draw_edict(ui, you.1);
+                                self.draw_creature(ui, you.0);
+                            } else {
+                                for _ in 0..6 {
+                                    self.textures.card_back.show(ui);
+                                }
+                            }
+
+                            ui.end_row();
+                        }
+                    });
+                });
+            }
+            // }}}
+            // {{{ Card preview
+            UITab::CardPreview => {
+                ui.label("Not implemented!");
+            } // }}}
+        };
     }
+    // }}}
 }
 // }}}
-// {{{ Eframe implementation
-impl PlayerGUI {
+// {{{ GUIApp stuff
+impl GUIApp {
     /// Called once before the first frame.
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         let state = KnownState::new_starting([Battlefield::Plains; 4]);
@@ -249,22 +342,40 @@ impl PlayerGUI {
             (Creature::Monarch, Edict::Sabotage, Some(Creature::Witch)),
         ]);
 
-        Self {
+        let ui_state = UIState {
             state,
             hidden: HiddenState::new(hand, None),
             phase: PerPhase::Main(MainPhase::new()),
             history,
             partial_main_choice: Some(PartialMainPhaseChoice::default()),
             textures: AppTextures::new(),
+        };
+
+        let tab_tree = egui_dock::Tree::new(vec![UITab::Field, UITab::Effects, UITab::History]);
+
+        Self {
+            tab_tree,
+            state: ui_state,
         }
+    }
+
+    /// Main rendering function
+    fn ui(&mut self, ui: &mut Ui) {
+        egui_dock::DockArea::new(&mut self.tab_tree)
+            .style(egui_dock::Style::from_egui(ui.style().as_ref()))
+            .show_inside(ui, &mut self.state);
     }
 }
 
-impl eframe::App for PlayerGUI {
+// {{{ Eframe implementation
+impl eframe::App for GUIApp {
     /// Called each time the UI needs repainting, which may be many times per second.
     /// Put your widgets into a `SidePanel`, `TopPanel`, `CentralPanel`, `Window` or `Area`.
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::CentralPanel::default().show(ctx, |ui| self.draw(ui));
+        egui::CentralPanel::default().show(ctx, |ui| {
+            egui::ScrollArea::new([false; 2]).show(ui, |ui| self.ui(ui));
+        });
     }
 }
+// }}}
 // }}}
