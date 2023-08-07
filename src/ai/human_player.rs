@@ -12,7 +12,8 @@ use crate::game::status_effect::{StatusEffect, StatusEffectSet};
 use crate::game::types::Player;
 use crate::helpers::bitfield::Bitfield;
 use crate::helpers::pair::Pair;
-use egui::{Grid, Ui};
+use egui::{Grid, Ui, Widget};
+use egui_extras::RetainedImage;
 use std::format;
 use std::sync::mpsc::{Receiver, Sender};
 
@@ -63,7 +64,6 @@ struct UIState {
 
     // Ui state
     textures: AppTextures,
-
     // Communication:
     // sender: Sender<Decision>,
     // receiver: Receiver<AgentInput>,
@@ -118,8 +118,21 @@ impl UIState {
     // }}}
     // {{{ Drawing helpers
     #[inline(always)]
-    fn draw_battlefield(ui: &mut Ui, battlefield: Battlefield) {
-        ui.label(format!("{battlefield:?}"));
+    fn draw_gray_image(ui: &mut Ui, image: &RetainedImage) {
+        let texture = image.texture_id(ui.ctx());
+        egui::Image::new(texture, image.size_vec2())
+            .tint(egui::Color32::DARK_GRAY)
+            .ui(ui);
+    }
+
+    #[inline(always)]
+    fn draw_battlefield(&self, ui: &mut Ui, battlefield: Battlefield, disabled: bool) {
+        let retained_image = &self.textures.battlefields[battlefield as usize];
+        if disabled {
+            Self::draw_gray_image(ui, retained_image);
+        } else {
+            retained_image.show(ui);
+        }
     }
 
     #[inline(always)]
@@ -207,63 +220,62 @@ impl egui_dock::TabViewer for UIState {
         match tab {
             // {{{ Field state
             UITab::Field => {
-                ui.group(|ui| {
-                    ui.vertical(|ui| {
-                        // {{{ Prepare data
-                        let opponent_creature_possibilities =
-                            !(self.hidden.hand | self.state.graveyard);
+                ui.vertical(|ui| {
+                    // {{{ Prepare data
+                    let opponent_creature_possibilities =
+                        !(self.hidden.hand | self.state.graveyard);
 
-                        let [my_edict, your_edict] = self.played_edicts();
-                        let [my_sabotage, your_sabotage] = self.sabotage_choices();
-                        // }}}
-                        // {{{ Opponent's board
-                        ui.heading("Opponent's board");
+                    let [my_edict, your_edict] = self.played_edicts();
+                    let [my_sabotage, your_sabotage] = self.sabotage_choices();
+                    // }}}
+                    // {{{ Opponent's board
+                    ui.heading("Opponent's board");
 
-                        ui.horizontal(|ui| {
-                            self.draw_edict_set(ui, you.edicts);
-                        });
-
-                        ui.horizontal(|ui| {
-                            self.draw_creature_set(ui, opponent_creature_possibilities);
-                        });
-
-                        Grid::new("Opponent's choices").show(ui, |ui| {
-                            ui.label("Edict");
-                            ui.label("Sabotage");
-                            ui.end_row();
-                            self.draw_opt_edict(ui, your_edict);
-                            self.draw_opt_creature(ui, your_sabotage);
-                            ui.end_row();
-                        });
-                        // }}}
-                        // {{{ Player's board
-                        ui.heading("Your board");
-
-                        Grid::new("Player's choices").show(ui, |ui| {
-                            ui.label("Edict");
-                            ui.label("Sabotage");
-                            ui.label("Creatures");
-                            ui.end_row();
-                            self.draw_opt_edict(ui, my_edict);
-                            self.draw_opt_creature(ui, my_sabotage);
-                            self.draw_creature_set_of_length(
-                                ui,
-                                self.my_creatures().unwrap_or_default(),
-                                self.state.creature_choice_size(Player::Me),
-                            );
-                            ui.end_row();
-                        });
-
-                        ui.horizontal(|ui| {
-                            self.draw_edict_set(ui, me.edicts);
-                        });
-
-                        ui.horizontal(|ui| {
-                            self.draw_creature_set(ui, self.hidden.hand);
-                        });
-
-                        // }}}
+                    ui.horizontal(|ui| {
+                        self.draw_edict_set(ui, you.edicts);
                     });
+
+                    ui.horizontal(|ui| {
+                        self.draw_creature_set(ui, opponent_creature_possibilities);
+                    });
+
+                    Grid::new("Opponent's choices").show(ui, |ui| {
+                        ui.label("Edict");
+                        ui.label("Sabotage");
+                        ui.end_row();
+                        self.draw_opt_edict(ui, your_edict);
+                        self.draw_opt_creature(ui, your_sabotage);
+                        ui.end_row();
+                    });
+                    // }}}
+                    ui.separator();
+                    // {{{ Player's board
+                    ui.heading("Your board");
+
+                    Grid::new("Player's choices").show(ui, |ui| {
+                        ui.label("Edict");
+                        ui.label("Sabotage");
+                        ui.label("Creatures");
+                        ui.end_row();
+                        self.draw_opt_edict(ui, my_edict);
+                        self.draw_opt_creature(ui, my_sabotage);
+                        self.draw_creature_set_of_length(
+                            ui,
+                            self.my_creatures().unwrap_or_default(),
+                            self.state.creature_choice_size(Player::Me),
+                        );
+                        ui.end_row();
+                    });
+
+                    ui.horizontal(|ui| {
+                        self.draw_edict_set(ui, me.edicts);
+                    });
+
+                    ui.horizontal(|ui| {
+                        self.draw_creature_set(ui, self.hidden.hand);
+                    });
+
+                    // }}}
                 });
             }
             // }}}
@@ -294,7 +306,9 @@ impl egui_dock::TabViewer for UIState {
                         ui.end_row();
 
                         for index in 0..4 {
-                            Self::draw_battlefield(ui, self.state.battlefields.all[index]);
+                            let in_the_past = index < self.state.battlefields.current;
+
+                            self.draw_battlefield(ui, self.state.battlefields.all[index], false);
 
                             if let Some([me, you]) = self.history[index] {
                                 self.draw_creature(ui, me.0);
@@ -305,7 +319,11 @@ impl egui_dock::TabViewer for UIState {
                                 self.draw_creature(ui, you.0);
                             } else {
                                 for _ in 0..6 {
-                                    self.textures.card_back.show(ui);
+                                    if in_the_past {
+                                        self.textures.card_back.show(ui);
+                                    } else {
+                                        Self::draw_gray_image(ui, &self.textures.card_back);
+                                    }
                                 }
                             }
 
@@ -328,10 +346,25 @@ impl egui_dock::TabViewer for UIState {
 impl GUIApp {
     /// Called once before the first frame.
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
-        let state = KnownState::new_starting([Battlefield::Plains; 4]);
-        let mut hand = CreatureSet::default();
+        let battlefields = [
+            Battlefield::Night,
+            Battlefield::Urban,
+            Battlefield::Mountain,
+            Battlefield::LastStrand,
+        ];
 
-        for creature in Creature::CREATURES.into_iter().take(state.hand_size()) {
+        let mut state = KnownState::new_starting(battlefields);
+        let mut hand = CreatureSet::default();
+        state.battlefields.current = 2;
+
+        state.player_states[0].edicts.remove(Edict::RileThePublic);
+        state.player_states[0].edicts.remove(Edict::DivertAttention);
+
+        for creature in Creature::CREATURES.into_iter().take(4) {
+            state.graveyard.insert(creature);
+        }
+
+        for creature in (!state.graveyard).into_iter().take(state.hand_size()) {
             hand.insert(creature)
         }
 
