@@ -87,7 +87,7 @@ Each creature has a set of unique effects.
 
 ### Ranger
 
-1. ✅ Gains `+2` strength if the played receives a battlefield bonus and the opponent does not.
+1. ✅ Gains `+2` strength if the player receives a battlefield bonus and the opponent does not.
 
 ### Steward
 

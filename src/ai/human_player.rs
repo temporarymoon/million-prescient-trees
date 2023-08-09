@@ -12,7 +12,7 @@ use crate::game::status_effect::{StatusEffect, StatusEffectSet};
 use crate::game::types::Player;
 use crate::helpers::bitfield::Bitfield;
 use crate::helpers::pair::Pair;
-use egui::{Grid, Ui, Widget};
+use egui::{Grid, Ui, Vec2, Widget};
 use egui_extras::RetainedImage;
 use std::format;
 use std::sync::mpsc::{Receiver, Sender};
@@ -51,6 +51,14 @@ pub struct GUIApp {
     state: UIState,
 }
 
+#[derive(Debug, Clone, Copy)]
+enum HoveredCard {
+    Creature(Creature),
+    Edict(Edict),
+    Battlefield(Battlefield),
+    StatusEffect(StatusEffect),
+}
+
 /// State used to render the contents of the individual ui tabs.
 struct UIState {
     // Received from the agent
@@ -64,6 +72,7 @@ struct UIState {
 
     // Ui state
     textures: AppTextures,
+    hovered_card: Option<HoveredCard>,
     // Communication:
     // sender: Sender<Decision>,
     // receiver: Receiver<AgentInput>,
@@ -118,56 +127,70 @@ impl UIState {
     // }}}
     // {{{ Drawing helpers
     #[inline(always)]
-    fn draw_gray_image(ui: &mut Ui, image: &RetainedImage) {
+    fn draw_gray_image(ui: &mut Ui, image: &RetainedImage) -> egui::Response {
         let texture = image.texture_id(ui.ctx());
         egui::Image::new(texture, image.size_vec2())
             .tint(egui::Color32::DARK_GRAY)
-            .ui(ui);
+            .ui(ui)
     }
 
     #[inline(always)]
-    fn draw_battlefield(&self, ui: &mut Ui, battlefield: Battlefield, disabled: bool) {
+    fn draw_battlefield(&mut self, ui: &mut Ui, battlefield: Battlefield, disabled: bool) {
         let retained_image = &self.textures.battlefields[battlefield as usize];
-        if disabled {
-            Self::draw_gray_image(ui, retained_image);
+        let res = if disabled {
+            Self::draw_gray_image(ui, retained_image)
         } else {
-            retained_image.show(ui);
+            retained_image.show(ui)
+        };
+
+        if res.hovered() {
+            self.hovered_card = Some(HoveredCard::Battlefield(battlefield));
         }
     }
 
     #[inline(always)]
-    fn draw_status_effect(ui: &mut Ui, status_effect: StatusEffect) {
-        ui.label(format!("{status_effect:?}"));
+    fn draw_status_effect(&mut self, ui: &mut Ui, status_effect: StatusEffect) {
+        let res = ui.label(format!("{status_effect:?}"));
+        if res.hovered() {
+            self.hovered_card = Some(HoveredCard::StatusEffect(status_effect));
+        }
     }
 
     #[inline(always)]
-    fn draw_status_effect_set(ui: &mut Ui, status_effects: StatusEffectSet) {
+    fn draw_status_effect_set(&mut self, ui: &mut Ui, status_effects: StatusEffectSet) {
         for status_effect in status_effects {
-            Self::draw_status_effect(ui, status_effect);
+            Self::draw_status_effect(self, ui, status_effect);
         }
     }
 
     #[inline(always)]
-    fn draw_edict(&self, ui: &mut Ui, edict: Edict) {
-        self.textures.edicts[edict as usize].show(ui);
+    fn draw_edict(&mut self, ui: &mut Ui, edict: Edict) {
+        let res = self.textures.edicts[edict as usize].show(ui);
+        if res.hovered() {
+            self.hovered_card = Some(HoveredCard::Edict(edict));
+        }
     }
 
     #[inline(always)]
-    fn draw_opt_edict(&self, ui: &mut Ui, edict: Option<Edict>) {
+    fn draw_opt_edict(&mut self, ui: &mut Ui, edict: Option<Edict>) {
         if let Some(edict) = edict {
-            Self::draw_edict(self, ui, edict)
+            Self::draw_edict(self, ui, edict);
         } else {
             self.textures.card_back.show(ui);
+        };
+    }
+
+    #[inline(always)]
+    fn draw_creature(&mut self, ui: &mut Ui, creature: Creature) {
+        let res = self.textures.creatures[creature as usize].show(ui);
+
+        if res.hovered() {
+            self.hovered_card = Some(HoveredCard::Creature(creature));
         }
     }
 
     #[inline(always)]
-    fn draw_creature(&self, ui: &mut Ui, creature: Creature) {
-        self.textures.creatures[creature as usize].show(ui);
-    }
-
-    #[inline(always)]
-    fn draw_opt_creature(&self, ui: &mut Ui, creature: Option<Creature>) {
+    fn draw_opt_creature(&mut self, ui: &mut Ui, creature: Option<Creature>) {
         if let Some(creature) = creature {
             self.draw_creature(ui, creature)
         } else {
@@ -176,7 +199,7 @@ impl UIState {
     }
 
     #[inline(always)]
-    fn draw_edict_set(&self, ui: &mut Ui, edicts: EdictSet) {
+    fn draw_edict_set(&mut self, ui: &mut Ui, edicts: EdictSet) {
         for edict in edicts {
             Self::draw_edict(self, ui, edict);
         }
@@ -185,7 +208,7 @@ impl UIState {
     /// Similar to `draw_creature_set`, but will show additional
     /// card backs to get the set to a given size.
     #[inline(always)]
-    fn draw_creature_set_of_length(&self, ui: &mut Ui, creatures: CreatureSet, len: usize) {
+    fn draw_creature_set_of_length(&mut self, ui: &mut Ui, creatures: CreatureSet, len: usize) {
         let remaining = len - creatures.len();
 
         for creature in creatures {
@@ -198,7 +221,7 @@ impl UIState {
     }
 
     #[inline(always)]
-    fn draw_creature_set(&self, ui: &mut Ui, creatures: CreatureSet) {
+    fn draw_creature_set(&mut self, ui: &mut Ui, creatures: CreatureSet) {
         for creature in creatures {
             self.draw_creature(ui, creature);
         }
@@ -283,12 +306,12 @@ impl egui_dock::TabViewer for UIState {
             UITab::Effects => {
                 ui.vertical(|ui| {
                     ui.heading("Your effects");
-                    Self::draw_status_effect_set(ui, me.effects);
+                    self.draw_status_effect_set(ui, me.effects);
                 });
 
                 ui.vertical(|ui| {
                     ui.heading("Opponent's effects");
-                    Self::draw_status_effect_set(ui, you.effects);
+                    self.draw_status_effect_set(ui, you.effects);
                 });
             }
             // }}}
@@ -335,9 +358,119 @@ impl egui_dock::TabViewer for UIState {
             // }}}
             // {{{ Card preview
             UITab::CardPreview => {
-                ui.label("Not implemented!");
+                if let Some(hovered) = self.hovered_card {
+                    // {{{ Card name
+                    let name = match hovered {
+                        HoveredCard::Creature(inner) => format!("{inner:?}"),
+                        HoveredCard::Edict(inner) => format!("{inner:?}"),
+                        HoveredCard::Battlefield(inner) => format!("{inner:?}"),
+                        HoveredCard::StatusEffect(inner) => format!("{inner:?}"),
+                    };
+
+                    ui.heading(name);
+                    // }}}
+                    // {{{ Image
+                    let max_width = ui.available_width();
+                    match hovered {
+                        HoveredCard::Creature(creature) => {
+                            self.textures.creatures[creature as usize]
+                                .show_size(ui, Vec2::new(max_width, max_width));
+                        }
+                        HoveredCard::Edict(edict) => {
+                            self.textures.edicts[edict as usize]
+                                .show_size(ui, Vec2::new(max_width, max_width));
+                        }
+                        HoveredCard::Battlefield(battlefield) => {
+                            self.textures.battlefields[battlefield as usize]
+                                .show_size(ui, Vec2::new(max_width, max_width));
+                        }
+                        HoveredCard::StatusEffect(status_effect) => {
+                            self.draw_status_effect(ui, status_effect)
+                        }
+                    }
+                    // }}}
+                    // {{{ Description
+                    let description = match hovered {
+                        HoveredCard::Creature(inner) => Creature::DESCRIPTIONS[inner as usize],
+                        _ => "unwritten",
+                    };
+
+                    ui.label(description);
+                    // }}}
+                    ui.separator();
+                    // {{{ Extra info
+                    match hovered {
+                        // {{{ Creature
+                        HoveredCard::Creature(creature) => {
+                            ui.label(format!(
+                                "Strength = {} + bonuses from:",
+                                creature.strength()
+                            ));
+
+                            let bonus_image_size = ui.available_width() / 4.0;
+
+                            ui.horizontal(|ui| {
+                                for battlefield in Battlefield::BATTLEFIELDS {
+                                    if battlefield.bonus(creature) {
+                                        let tex = &self.textures.battlefields[battlefield as usize];
+
+                                        let res = egui::ImageButton::new(
+                                            tex.texture_id(ui.ctx()),
+                                            Vec2::new(bonus_image_size, bonus_image_size),
+                                        )
+                                        .ui(ui);
+
+                                        if res.clicked() {
+                                            self.hovered_card =
+                                                Some(HoveredCard::Battlefield(battlefield));
+                                        }
+                                    };
+                                }
+                            });
+                        }
+                        // }}}
+                        // {{{ Battlefield
+                        HoveredCard::Battlefield(battlefield) => {
+                            let mut creatures = CreatureSet::empty();
+
+                            for creature in Creature::CREATURES {
+                                if battlefield.bonus(creature) {
+                                    creatures.insert(creature);
+                                }
+                            }
+
+                            if creatures != CreatureSet::empty() {
+                                let bonus_image_size = ui.available_width() / 5.0;
+
+                                ui.label("Battlefield bonuses");
+                                ui.horizontal(|ui| {
+                                    for creature in creatures {
+                                        let tex = &self.textures.creatures[creature as usize];
+
+                                        let res = egui::ImageButton::new(
+                                            tex.texture_id(ui.ctx()),
+                                            Vec2::new(bonus_image_size, bonus_image_size),
+                                        )
+                                        .ui(ui);
+
+                                        if res.clicked() {
+                                            self.hovered_card =
+                                                Some(HoveredCard::Creature(creature));
+                                        }
+                                    }
+                                });
+                                ui.separator();
+                            }
+
+                            ui.label(format!("Reward: {}", battlefield.reward()));
+                        }
+                        // }}}
+                        _ => {}
+                    };
+                    // }}}
+                }
             } // }}}
-        };
+        }
     }
     // }}}
 }
@@ -382,9 +515,15 @@ impl GUIApp {
             history,
             partial_main_choice: Some(PartialMainPhaseChoice::default()),
             textures: AppTextures::new(),
+            hovered_card: None,
         };
 
-        let tab_tree = egui_dock::Tree::new(vec![UITab::Field, UITab::Effects, UITab::History]);
+        let mut tab_tree = egui_dock::Tree::new(vec![UITab::Field, UITab::Effects, UITab::History]);
+        tab_tree.split_left(
+            egui_dock::tree::node_index::NodeIndex::root(),
+            0.33,
+            vec![UITab::CardPreview],
+        );
 
         Self {
             tab_tree,
