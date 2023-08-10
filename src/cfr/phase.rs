@@ -693,4 +693,66 @@ pub enum PerPhase<Main, Sabotage, Seer> {
 }
 
 pub type SomePhase = PerPhase<MainPhase, SabotagePhase, SeerPhase>;
+
+impl<A, B, C> PerPhase<A, B, C> {
+    pub fn tag(&self) -> PhaseTag {
+        match self {
+            Self::Main(_) => PhaseTag::Main,
+            Self::Sabotage(_) => PhaseTag::Sabotage,
+            Self::Seer(_) => PhaseTag::Seer,
+        }
+    }
+}
+
+impl SomePhase {
+    /// Calls the method with the same name on the underlying phase.
+    pub fn hidden_index_decoding_info(&self) -> hidden_index::DecodingInfo {
+        match self {
+            Self::Main(inner) => inner.hidden_index_decoding_info(),
+            Self::Sabotage(inner) => inner.hidden_index_decoding_info(),
+            Self::Seer(inner) => inner.hidden_index_decoding_info(),
+        }
+    }
+
+    pub fn advance(
+        &self,
+        state: KnownState,
+        hidden: Pair<hidden_index::HiddenState>,
+        decisions: Pair<DecisionIndex>,
+    ) -> Option<
+        TurnResult<(
+            KnownState,
+            Pair<hidden_index::EncodingInfo>,
+            RevealIndex,
+            Self,
+        )>,
+    > {
+        let summary = state.to_summary();
+        let (next_summary, next_hidden, reveal_index) = match self {
+            Self::Main(inner) => inner.advance_hidden_indices(summary, hidden, decisions),
+            Self::Sabotage(inner) => inner.advance_hidden_indices(summary, hidden, decisions),
+            Self::Seer(inner) => inner.advance_hidden_indices(summary, hidden, decisions),
+        }?;
+
+        let advanced_state = match self {
+            Self::Main(inner) => inner.advance_state(&state, reveal_index),
+            Self::Sabotage(inner) => inner.advance_state(&state, reveal_index),
+            Self::Seer(inner) => inner.advance_state(&state, reveal_index),
+        };
+
+        let next_phase: Self = match self {
+            Self::Main(inner) => Self::Sabotage(inner.advance_phase(&state, reveal_index)?),
+            Self::Sabotage(inner) => Self::Seer(inner.advance_phase(&state, reveal_index)?),
+            Self::Seer(inner) => Self::Main(inner.advance_phase(&state, reveal_index)?),
+        };
+
+        let result = advanced_state.map(|next_state| {
+            assert_eq!(next_state.to_summary(), next_summary);
+
+            (state, next_hidden, reveal_index, next_phase)
+        });
+
+        Some(result)
+    }
+}
 // }}}

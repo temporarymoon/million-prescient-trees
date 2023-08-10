@@ -138,6 +138,20 @@ impl HiddenState {
         let (hand, choice) = info.get_pre_seer();
         Self { hand, choice }
     }
+
+    /// Convers data required for creating a hidden index into
+    /// `Self` (the data returned from decoding a hidden index).
+    ///
+    /// This is very useful for testing.
+    #[inline(always)]
+    pub fn to_encoding_info(self, revealed: Option<Creature>) -> EncodingInfo {
+        match (self.choice, revealed) {
+            (None, None) => EncodingInfo::Main(self.hand),
+            (Some(choice), None) => EncodingInfo::Sabotage(self.hand, choice),
+            (Some(choice), Some(revealed)) => EncodingInfo::Seer(self.hand, choice, revealed),
+            (_, _) => panic!("Impossible state")
+        }
+    }
 }
 
 // }}}

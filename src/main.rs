@@ -2,6 +2,7 @@
 
 use bumpalo::Bump;
 use echo::ai::human_player::GUIApp;
+use echo::ai::human_player::HumanAgent;
 use echo::cfr::decision_index::DecisionIndex;
 use echo::cfr::generate::EstimationContext;
 use echo::cfr::generate::GenerationContext;
@@ -17,6 +18,7 @@ use echo::game::types::Player;
 use echo::helpers::bitfield::Bitfield;
 use std::println;
 use std::time::Instant;
+use tracing::Level;
 
 // {{{ Dumb size conversion functions
 fn mb_to_b(mb: usize) -> usize {
@@ -148,17 +150,23 @@ fn simple_trainig() {
 }
 // }}}
 // {{{ Simple gui routine
-fn show_gui() -> eframe::Result<()> {
+fn show_gui() {
+    let (agent, bus) = HumanAgent::create();
+
     let options = eframe::NativeOptions::default();
+    tracing::event!(Level::INFO, "test event");
+
     eframe::run_native(
         "million prescient trees",
         options,
-        Box::new(|cc| Box::new(GUIApp::new(cc))),
+        Box::new(|cc| Box::new(GUIApp::new(cc, bus))),
     )
+    .unwrap()
 }
 // }}}
 
 fn main() {
+    tracing_subscriber::fmt().compact().init();
     // simple_generation(2, 2, false);
-    show_gui().unwrap()
+    show_gui();
 }

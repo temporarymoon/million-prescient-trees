@@ -115,12 +115,22 @@ impl Score {
     /// Convert score to utlity — the value training attempts to maximize.
     #[inline(always)]
     pub fn to_utility(self) -> Utility {
+        match self.to_battle_result() {
+            BattleResult::Won => 1.0,
+            BattleResult::Lost => -1.0,
+            BattleResult::Tied => 0.0,
+        }
+    }
+
+    /// Returns the result of a game ending with this score.
+    #[inline(always)]
+    pub fn to_battle_result(self) -> BattleResult {
         if self.0 > 0 {
-            1.0
+            BattleResult::Won
         } else if self.0 < 0 {
-            -1.0
+            BattleResult::Lost
         } else {
-            0.0
+            BattleResult::Tied
         }
     }
 }
@@ -160,10 +170,19 @@ impl<T> TurnResult<T> {
             TurnResult::Unfinished(_) => false,
         }
     }
+
     pub fn get_unfinished(self) -> Option<T> {
         match self {
             TurnResult::Finished(_) => None,
             TurnResult::Unfinished(result) => Some(result),
+        }
+    }
+
+    /// Maps the inner value kept by this result.
+    pub fn map<U>(self, f: impl FnOnce(T) -> U) -> TurnResult<U> {
+        match self {
+            TurnResult::Finished(s) => TurnResult::Finished(s),
+            TurnResult::Unfinished(u) => TurnResult::Unfinished(f(u)),
         }
     }
 }
