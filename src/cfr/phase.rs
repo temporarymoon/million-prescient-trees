@@ -80,7 +80,7 @@ impl Debug for PhaseStats {
 }
 // }}}
 // {{{ The Phase trait
-pub trait Phase: Sync {
+pub trait Phase: Sync + Sized {
     type Next: Phase;
 
     const TAG: PhaseTag;
@@ -130,6 +130,12 @@ pub trait Phase: Sync {
     )>;
 
     fn hidden_index_decoding_info(&self) -> hidden_index::DecodingInfo;
+
+    /// Required by the per_phase! macro.
+    #[inline(always)]
+    fn pass_to<P>(self, f: impl FnOnce(Self) -> P) -> P {
+        f(self)
+    }
 }
 // }}}
 // {{{ Phase instances
@@ -695,6 +701,7 @@ pub enum PerPhase<Main, Sabotage, Seer> {
 pub type SomePhase = PerPhase<MainPhase, SabotagePhase, SeerPhase>;
 
 impl<A, B, C> PerPhase<A, B, C> {
+    #[inline(always)]
     pub fn tag(&self) -> PhaseTag {
         match self {
             Self::Main(_) => PhaseTag::Main,
@@ -704,14 +711,20 @@ impl<A, B, C> PerPhase<A, B, C> {
     }
 }
 
+macro_rules! per_phase {
+    ($s: expr, $f:expr) => {
+        match $s {
+            Self::Main(inner) => inner.pass_to($f),
+            Self::Sabotage(inner) => inner.pass_to($f),
+            Self::Seer(inner) => inner.pass_to($f),
+        }
+    };
+}
+
 impl SomePhase {
     /// Calls the method with the same name on the underlying phase.
     pub fn hidden_index_decoding_info(&self) -> hidden_index::DecodingInfo {
-        match self {
-            Self::Main(inner) => inner.hidden_index_decoding_info(),
-            Self::Sabotage(inner) => inner.hidden_index_decoding_info(),
-            Self::Seer(inner) => inner.hidden_index_decoding_info(),
-        }
+        per_phase!(self, |inner| inner.hidden_index_decoding_info())
     }
 
     pub fn advance(
@@ -728,18 +741,10 @@ impl SomePhase {
         )>,
     > {
         let summary = state.to_summary();
-        let (next_summary, next_hidden, reveal_index) = match self {
-            Self::Main(inner) => inner.advance_hidden_indices(summary, hidden, decisions),
-            Self::Sabotage(inner) => inner.advance_hidden_indices(summary, hidden, decisions),
-            Self::Seer(inner) => inner.advance_hidden_indices(summary, hidden, decisions),
-        }?;
+        let (next_summary, next_hidden, reveal_index) = per_phase!(self, |inner| inner
+            .advance_hidden_indices(summary, hidden, decisions))?;
 
-        let advanced_state = match self {
-            Self::Main(inner) => inner.advance_state(&state, reveal_index),
-            Self::Sabotage(inner) => inner.advance_state(&state, reveal_index),
-            Self::Seer(inner) => inner.advance_state(&state, reveal_index),
-        };
-
+        let advanced_state = per_phase!(self, |inner| inner.advance_state(&state, reveal_index));
         let next_phase: Self = match self {
             Self::Main(inner) => Self::Sabotage(inner.advance_phase(&state, reveal_index)?),
             Self::Sabotage(inner) => Self::Seer(inner.advance_phase(&state, reveal_index)?),
@@ -753,6 +758,10 @@ impl SomePhase {
         });
 
         Some(result)
+    }
+
+    pub fn decision_counts(&self, state: &KnownState) -> Pair<usize> {
+        per_phase!(self, |inner| inner.decision_counts(state))
     }
 }
 // }}}

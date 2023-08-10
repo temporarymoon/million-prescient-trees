@@ -1,15 +1,12 @@
 use super::echo_ai::{AgentInput, EchoAgent};
 use super::textures::AppTextures;
 use crate::cfr::decision_index::DecisionIndex;
-use crate::cfr::hidden_index::HiddenState;
-use crate::cfr::phase::{MainPhase, PerPhase, PhaseTag, SomePhase};
+use crate::cfr::phase::{PerPhase, PhaseTag};
 use crate::game::battlefield::Battlefield;
 use crate::game::creature::{Creature, CreatureSet};
 use crate::game::edict::{Edict, EdictSet};
-use crate::game::known_state::KnownState;
 use crate::game::known_state_summary::KnownStateEssentials;
 use crate::game::status_effect::{StatusEffect, StatusEffectSet};
-use crate::game::types::Player;
 use crate::helpers::bitfield::Bitfield;
 use crate::helpers::pair::Pair;
 use egui::{Grid, Ui, Vec2, Widget};
@@ -40,6 +37,7 @@ pub enum UITab {
     Field,
     Effects,
     History,
+    DebugInfo,
 }
 
 /// Holds all the state of the gui!
@@ -69,14 +67,13 @@ pub struct UIBus {
 /// State used to render the contents of the individual ui tabs.
 struct UIState {
     // Received from the agent
-    state: KnownState,
-    hidden: HiddenState,
-    phase: SomePhase,
+    input: AgentInput,
 
     // Internal state
     history: [Option<Pair<(Creature, Edict, Option<Creature>)>>; 4],
     partial_main_choice: Option<PartialMainPhaseChoice>,
     communication: UIBus,
+    decision_sent: bool,
 
     // Ui state
     textures: AppTextures,
@@ -106,9 +103,15 @@ impl HumanAgent {
 }
 
 impl EchoAgent for HumanAgent {
-    fn choose(&self, agent_input: AgentInput) -> Option<DecisionIndex> {
+    fn choose(&mut self, agent_input: AgentInput) -> Option<DecisionIndex> {
+        let _guard = tracing::span!(Level::DEBUG, "human agent choose method");
+        tracing::trace!("Sending input");
         self.sender.send(agent_input).unwrap();
-        self.receiver.recv().unwrap()
+        tracing::trace!("Input sent");
+        let decision = self.receiver.recv().unwrap();
+        tracing::trace!("Received decision");
+
+        decision
     }
 }
 // }}}
@@ -118,13 +121,14 @@ impl UIState {
 
     // {{{ Data helpers
     fn my_creatures(&self) -> Option<CreatureSet> {
-        self.hidden
-            .choice
+        self.input
+            .hidden
+            .get_sabotage()
             .or_else(|| self.partial_main_choice.map(|p| p.creatures))
     }
 
     fn played_edicts(&self) -> Pair<Option<Edict>> {
-        let choices = match self.phase {
+        let choices = match self.input.phase {
             PerPhase::Main(_) => None,
             PerPhase::Sabotage(p) => Some(p.edict_choices),
             PerPhase::Seer(p) => Some(p.edict_choices),
@@ -145,7 +149,7 @@ impl UIState {
     }
 
     fn sabotage_choices(&self) -> Pair<Option<Creature>> {
-        match self.phase {
+        match self.input.phase {
             PerPhase::Seer(seer) => seer.sabotage_choices,
             _ => [None; 2],
         }
@@ -290,25 +294,34 @@ impl UIState {
     }
     // }}}
     // {{{ Communication
-    fn try_communicate_main(&self) {
-        let player = Player::Me;
-        match self.partial_main_choice {
-            Some(PartialMainPhaseChoice {
-                creatures,
-                edict: Some(edict),
-            }) if creatures.len() == self.state.creature_choice_size(player) => {
-                tracing::event!(Level::INFO, "Sending decision to agent");
+    fn try_communicate_main(&mut self) {
+        if self.decision_sent {
+            return;
+        }
 
-                let index = DecisionIndex::encode_main_phase_index(
-                    &self.state,
-                    player,
-                    self.hidden.hand,
+        match self.input.phase.tag() {
+            PhaseTag::Main => match self.partial_main_choice {
+                Some(PartialMainPhaseChoice {
                     creatures,
-                    edict,
-                );
+                    edict: Some(edict),
+                }) if creatures.len()
+                    == self.input.state.creature_choice_size(self.input.player) =>
+                {
+                    tracing::event!(Level::INFO, "Sending decision to agent");
 
-                self.communication.sender.send(index).unwrap();
-            }
+                    let index = DecisionIndex::encode_main_phase_index(
+                        &self.input.state,
+                        self.input.player,
+                        self.input.hidden.get_main(),
+                        creatures,
+                        edict,
+                    );
+
+                    self.communication.sender.send(index).unwrap();
+                    self.decision_sent = true;
+                }
+                _ => {}
+            },
             _ => {}
         }
     }
@@ -318,20 +331,10 @@ impl UIState {
         if let Ok(input) = self.communication.receiver.try_recv() {
             tracing::event!(Level::INFO, "Received input from agent");
 
-            let hidden_state = input
-                .hidden
-                .decode(
-                    &input.state,
-                    Player::Me,
-                    input.phase.hidden_index_decoding_info(),
-                )
-                .unwrap();
+            self.input = input;
 
-            self.hidden = hidden_state;
-            self.phase = input.phase;
-            self.state = input.state;
-
-            self.partial_main_choice = if self.phase.tag() == PhaseTag::Main {
+            self.decision_sent = false;
+            self.partial_main_choice = if self.input.phase.tag() == PhaseTag::Main {
                 Some(PartialMainPhaseChoice::default())
             } else {
                 None
@@ -353,19 +356,18 @@ impl egui_dock::TabViewer for UIState {
         let span = tracing::span!(Level::INFO, "Rendering ui");
         let _guard = span.enter();
 
-        let me = self.state.player_states[0];
-        let you = self.state.player_states[1];
+        let [me, you] = self.input.player.order_as(self.input.state.player_states);
         match tab {
             // {{{ Field state
             UITab::Field => {
                 ui.vertical(|ui| {
                     // {{{ Prepare data
                     let opponent_creature_possibilities =
-                        !(self.hidden.hand | self.state.graveyard);
+                        !(self.input.hidden.get_main() | self.input.state.graveyard);
 
                     let [my_edict, your_edict] = self.played_edicts();
                     let [my_sabotage, your_sabotage] = self.sabotage_choices();
-                    let is_main = self.phase.tag() == PhaseTag::Main;
+                    let is_main = self.input.phase.tag() == PhaseTag::Main;
                     let show_sabotage = !is_main;
                     // }}}
                     // {{{ Opponent's board
@@ -412,7 +414,7 @@ impl egui_dock::TabViewer for UIState {
                         self.draw_creature_set_of_length(
                             ui,
                             self.my_creatures().unwrap_or_default(),
-                            self.state.creature_choice_size(Player::Me),
+                            self.input.state.creature_choice_size(self.input.player),
                         );
 
                         if show_sabotage {
@@ -422,11 +424,12 @@ impl egui_dock::TabViewer for UIState {
                         ui.end_row();
                     });
 
+                    let can_make_main_choice = is_main && !self.decision_sent;
                     ui.horizontal(|ui| {
                         for edict in me.edicts {
-                            let res = self.draw_edict(ui, edict, is_main);
+                            let res = self.draw_edict(ui, edict, can_make_main_choice);
 
-                            if is_main && res.clicked() {
+                            if can_make_main_choice && res.clicked() {
                                 if let Some(choice) = &mut self.partial_main_choice {
                                     choice.edict = Some(edict);
                                 }
@@ -435,15 +438,15 @@ impl egui_dock::TabViewer for UIState {
                     });
 
                     ui.horizontal(|ui| {
-                        for creature in self.hidden.hand {
-                            let res = self.draw_creature(ui, creature, is_main);
+                        for creature in self.input.hidden.get_main() {
+                            let res = self.draw_creature(ui, creature, can_make_main_choice);
 
-                            if is_main && res.clicked() {
+                            if can_make_main_choice && res.clicked() {
                                 if let Some(choice) = &mut self.partial_main_choice {
                                     if choice.creatures.has(creature) {
                                         choice.creatures.remove(creature);
                                     } else if choice.creatures.len()
-                                        == self.state.creature_choice_size(Player::Me)
+                                        == self.input.state.creature_choice_size(self.input.player)
                                     {
                                         choice.creatures.remove(choice.creatures.index(0).unwrap());
                                         choice.creatures.insert(creature);
@@ -491,9 +494,13 @@ impl egui_dock::TabViewer for UIState {
                         ui.end_row();
 
                         for index in 0..4 {
-                            let in_the_past = index < self.state.battlefields.current;
+                            let in_the_past = index < self.input.state.battlefields.current;
 
-                            self.draw_battlefield(ui, self.state.battlefields.all[index], false);
+                            self.draw_battlefield(
+                                ui,
+                                self.input.state.battlefields.all[index],
+                                false,
+                            );
 
                             if let Some([me, you]) = self.history[index] {
                                 self.draw_creature(ui, me.0, false);
@@ -628,6 +635,20 @@ impl egui_dock::TabViewer for UIState {
                     // }}}
                 }
             } // }}}
+            // {{{ Debug info
+            UITab::DebugInfo => {
+                ui.heading("Debug info");
+                Grid::new("debug info").show(ui, |ui| {
+                    ui.label("Decision sent");
+                    ui.label(format!("{}", self.decision_sent));
+                    ui.end_row();
+                    ui.label("Phase");
+                    ui.label(format!("{:?}", self.input.phase.tag()));
+                    ui.end_row();
+                    ui.label("Hovered");
+                    ui.label(format!("{:?}", self.hovered_card));
+                });
+            } // }}}
         }
     }
     // }}}
@@ -637,43 +658,11 @@ impl egui_dock::TabViewer for UIState {
 impl GUIApp {
     /// Called once before the first frame.
     pub fn new(_cc: &eframe::CreationContext<'_>, communication: UIBus) -> Self {
-        // {{{ Create fake starting state
-        let battlefields = [
-            Battlefield::Night,
-            Battlefield::Urban,
-            Battlefield::Mountain,
-            Battlefield::LastStrand,
-        ];
-
-        let mut state = KnownState::new_starting(battlefields);
-        let mut hand = CreatureSet::default();
-        state.battlefields.current = 2;
-
-        state.player_states[0].edicts.remove(Edict::RileThePublic);
-        state.player_states[0].edicts.remove(Edict::DivertAttention);
-
-        for creature in Creature::CREATURES.into_iter().take(4) {
-            state.graveyard.insert(creature);
-        }
-
-        for creature in (!state.graveyard).into_iter().take(state.hand_size()) {
-            hand.insert(creature)
-        }
-
-        let mut history = [None; 4];
-
-        history[1] = Some([
-            (Creature::Seer, Edict::Ambush, None),
-            (Creature::Monarch, Edict::Sabotage, Some(Creature::Witch)),
-        ]);
-        // }}}
-
         let ui_state = UIState {
-            state,
-            hidden: HiddenState::new(hand, None),
-            phase: PerPhase::Main(MainPhase::new()),
-            history,
+            input: communication.receiver.recv().unwrap(),
+            history: [None; 4],
             partial_main_choice: Some(PartialMainPhaseChoice::default()),
+            decision_sent: false,
             textures: AppTextures::new(),
             hovered_card: None,
             communication,
@@ -684,7 +673,7 @@ impl GUIApp {
         tab_tree.split_left(
             egui_dock::tree::node_index::NodeIndex::root(),
             0.33,
-            vec![UITab::CardPreview],
+            vec![UITab::CardPreview, UITab::DebugInfo],
         );
         // }}}
 
@@ -696,6 +685,7 @@ impl GUIApp {
 
     /// Main rendering function
     fn ui(&mut self, ui: &mut Ui) {
+        self.state.try_accept_input();
         egui_dock::DockArea::new(&mut self.tab_tree)
             .style(egui_dock::Style::from_egui(ui.style().as_ref()))
             .show_inside(ui, &mut self.state);

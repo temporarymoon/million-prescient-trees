@@ -1,13 +1,16 @@
 #![allow(dead_code)]
 
 use bumpalo::Bump;
+use echo::ai::echo_ai::EchoRunner;
 use echo::ai::human_player::GUIApp;
 use echo::ai::human_player::HumanAgent;
+use echo::ai::random_agent::RandomAgent;
 use echo::cfr::decision_index::DecisionIndex;
 use echo::cfr::generate::EstimationContext;
 use echo::cfr::generate::GenerationContext;
 use echo::cfr::hidden_index::HiddenIndex;
 use echo::cfr::hidden_index::PerPhaseInfo;
+use echo::cfr::phase::Phase;
 use echo::cfr::train::TrainingContext;
 use echo::game::battlefield::Battlefield;
 use echo::game::creature::Creature;
@@ -16,9 +19,12 @@ use echo::game::known_state::KnownState;
 use echo::game::known_state_summary::KnownStateEssentials;
 use echo::game::types::Player;
 use echo::helpers::bitfield::Bitfield;
+use rand::thread_rng;
 use std::println;
+use std::thread;
 use std::time::Instant;
 use tracing::Level;
+use tracing_subscriber::prelude::*;
 
 // {{{ Dumb size conversion functions
 fn mb_to_b(mb: usize) -> usize {
@@ -151,22 +157,53 @@ fn simple_trainig() {
 // }}}
 // {{{ Simple gui routine
 fn show_gui() {
-    let (agent, bus) = HumanAgent::create();
+    let (human_agent, bus) = HumanAgent::create();
+
+    let handle = thread::spawn(|| {
+        let random_agent = RandomAgent::new(thread_rng());
+
+        let battlefields = [
+            Battlefield::Night,
+            Battlefield::Glade,
+            Battlefield::Urban,
+            Battlefield::LastStrand,
+        ];
+
+        let state = KnownState::new_starting(battlefields);
+        let main_phase = echo::cfr::phase::MainPhase::new();
+        let phase = echo::cfr::phase::PerPhase::Main(main_phase);
+        let agents = (human_agent, random_agent);
+        let hidden_state = main_phase
+            .valid_hidden_states(state.to_summary())
+            .next()
+            .unwrap();
+        let runner = EchoRunner::new(state, phase, agents, hidden_state);
+        let result = runner.run_game();
+        println!("{result:?}");
+    });
 
     let options = eframe::NativeOptions::default();
-    tracing::event!(Level::INFO, "test event");
-
     eframe::run_native(
         "million prescient trees",
         options,
         Box::new(|cc| Box::new(GUIApp::new(cc, bus))),
     )
-    .unwrap()
+    .unwrap();
+
+    handle.join().unwrap();
 }
 // }}}
 
 fn main() {
-    tracing_subscriber::fmt().compact().init();
-    // simple_generation(2, 2, false);
+    let filter = tracing_subscriber::filter::Targets::new()
+        .with_target("winit", Level::ERROR)
+        .with_target("echo", Level::TRACE);
+
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().compact())
+        .with(filter)
+        .init();
+
     show_gui();
+    // simple_generation(2, 2, false);
 }
