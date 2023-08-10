@@ -369,6 +369,13 @@ impl egui_dock::TabViewer for UIState {
                     let [my_sabotage, your_sabotage] = self.sabotage_choices();
                     let is_main = self.input.phase.tag() == PhaseTag::Main;
                     let show_sabotage = !is_main;
+                    let show_my_sabotage = match self.input.phase {
+                        PerPhase::Main(_) => false,
+                        PerPhase::Sabotage(inner) => inner.sabotage_status(self.input.player),
+                        PerPhase::Seer(inner) => {
+                            self.input.player.select(inner.edict_choices) == Edict::Sabotage
+                        }
+                    };
                     // }}}
                     // {{{ Opponent's board
                     ui.heading("Opponent's board");
@@ -399,13 +406,15 @@ impl egui_dock::TabViewer for UIState {
                     // }}}
                     ui.separator();
                     // {{{ Player's board
+                    let can_make_main_choice = is_main && !self.decision_sent;
+
                     ui.heading("Your board");
 
                     Grid::new("Player's choices").show(ui, |ui| {
                         ui.label("Edict");
                         ui.label("Creatures");
 
-                        if show_sabotage {
+                        if show_my_sabotage {
                             ui.label("Sabotage");
                         }
 
@@ -417,14 +426,13 @@ impl egui_dock::TabViewer for UIState {
                             self.input.state.creature_choice_size(self.input.player),
                         );
 
-                        if show_sabotage {
+                        if show_my_sabotage {
                             self.draw_opt_creature(ui, my_sabotage);
                         }
 
                         ui.end_row();
                     });
 
-                    let can_make_main_choice = is_main && !self.decision_sent;
                     ui.horizontal(|ui| {
                         for edict in me.edicts {
                             let res = self.draw_edict(ui, edict, can_make_main_choice);

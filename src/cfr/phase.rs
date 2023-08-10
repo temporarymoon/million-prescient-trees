@@ -260,7 +260,7 @@ impl SabotagePhase {
 
     /// Returns true if the given player has played the `Sabotage` edict.
     #[inline(always)]
-    fn sabotage_status(&self, player: Player) -> bool {
+    pub fn sabotage_status(&self, player: Player) -> bool {
         player.select(self.edict_choices) == Edict::Sabotage
     }
 
