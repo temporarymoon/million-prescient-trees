@@ -582,6 +582,8 @@ impl egui_dock::TabViewer for UIState {
                             ui.label("Sabotage");
                         }
 
+                        ui.label("Creature");
+
                         ui.end_row();
                         // }}}
 
@@ -590,6 +592,9 @@ impl egui_dock::TabViewer for UIState {
                         if show_your_sabotage {
                             self.draw_opt_creature(ui, your_sabotage);
                         }
+
+                        let choices = self.history[self.input.state.battlefields.current].choices;
+                        self.draw_opt_creature(ui, (!self.input.player).select(choices).creature);
 
                         ui.end_row();
                     });
@@ -849,10 +854,14 @@ impl egui_dock::TabViewer for UIState {
                             ui.horizontal(|ui| {
                                 for battlefield in Battlefield::BATTLEFIELDS {
                                     if battlefield.bonus(creature) {
+                                        let is_current =
+                                            self.input.state.battlefields.current() == battlefield;
+                                        let size_multiplier = if is_current { 1.5 } else { 1.0 };
+
                                         let res = Self::draw_clickable_image_size(
                                             ui,
                                             &self.textures.battlefields[battlefield as usize],
-                                            [bonus_image_size; 2],
+                                            [bonus_image_size * size_multiplier; 2],
                                         );
 
                                         if res.clicked() {
