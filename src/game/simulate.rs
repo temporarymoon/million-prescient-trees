@@ -16,6 +16,10 @@ pub struct BattleContext {
     pub main_choices: Pair<FinalMainPhaseChoice>,
     pub sabotage_choices: Pair<SabotagePhaseChoice>,
     pub state: KnownState,
+
+    /// When true, the state will preemtively end games if one player
+    /// wouldn't be able to win, no matter what they did.
+    enable_hopeless_surrenders: bool,
 }
 
 impl BattleContext {
@@ -24,12 +28,24 @@ impl BattleContext {
         main_choices: Pair<FinalMainPhaseChoice>,
         sabotage_choices: Pair<SabotagePhaseChoice>,
         state: KnownState,
+        enable_hopeless_surrenders: bool,
     ) -> Self {
         Self {
             main_choices,
             sabotage_choices,
             state,
+            enable_hopeless_surrenders,
         }
+    }
+
+    /// Returns a tuple containing all the choices made by a given player.
+    #[inline(always)]
+    pub fn all_choices(&self, player: Player) -> (Creature, Edict, Option<Creature>) {
+        (
+            self.creature(player),
+            self.edict(player),
+            player.select(self.sabotage_choices),
+        )
     }
 
     #[inline(always)]
@@ -339,7 +355,7 @@ impl BattleContext {
         let mut delta = match result {
             BattleResult::Tied => 0,
             BattleResult::Won => self.battle_reward(player) as i8,
-            BattleResult::Lost => -(self.battle_reward(player) as i8),
+            BattleResult::Lost => -(self.battle_reward(!player) as i8),
         };
 
         // Trigger monarch's effect
@@ -447,10 +463,10 @@ impl BattleContext {
                     }
                 }
 
-                if new_state.guaranteed_win(player) {
+                if self.enable_hopeless_surrenders && new_state.guaranteed_win(player) {
                     debug_assert!(!new_state.guaranteed_win(!player));
                     TurnResult::Finished(new_state.score(player))
-                } else if new_state.guaranteed_win(!player) {
+                } else if self.enable_hopeless_surrenders && new_state.guaranteed_win(!player) {
                     TurnResult::Finished(new_state.score(player))
                 } else {
                     TurnResult::Unfinished(new_state)
@@ -523,7 +539,7 @@ mod tests {
         let p1_choice = FinalMainPhaseChoice::new(Creature::Mercenary, Edict::Gambit);
         let p2_choice = FinalMainPhaseChoice::new(Creature::Seer, Edict::Gambit);
 
-        BattleContext::new([p1_choice, p2_choice], [None, None], *BASIC_STATE)
+        BattleContext::new([p1_choice, p2_choice], [None, None], *BASIC_STATE, false)
     });
     // }}}
     // {{{ Battlefields

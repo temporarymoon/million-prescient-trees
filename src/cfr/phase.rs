@@ -93,16 +93,32 @@ pub trait Phase: Sync + Sized {
         reveal_index: RevealIndex,
     ) -> Option<Self::Next>;
 
+    /// Computes the following state given the revealed information.
+    ///
+    /// # Arguments:
+    ///
+    /// * `state` - Self explainatory.
+    /// * `reveal_index` - Precomputed value for the data revealed in this state.
+    /// * `hoeless-surrenders` - See the docs for `BattleContext` to see what this does.
     fn advance_state(
         &self,
         state: &KnownState,
         reveal_index: RevealIndex,
+        hopeless_surrenders: bool,
     ) -> TurnResult<KnownState>;
 
+    /// Preapres a context for a battle to take place in this state.
+    ///
+    /// # Arguments:
+    ///
+    /// * `state` - Self explainatory.
+    /// * `reveal_index` - Precomputed value for the data revealed in this state.
+    /// * `hoeless-surrenders` - See the docs for `BattleContext` to see what this does.
     fn battle_context(
         &self,
         _state: &KnownState,
         _reveal_index: RevealIndex,
+        _hopeless_surrenders: bool,
     ) -> Option<BattleContext> {
         None
     }
@@ -189,6 +205,7 @@ impl Phase for MainPhase {
         &self,
         state: &KnownState,
         _reveal_index: RevealIndex,
+        _hopeless_surrenders: bool,
     ) -> TurnResult<KnownState> {
         // Sanity check
         for player in Player::PLAYERS {
@@ -312,7 +329,12 @@ impl Phase for SabotagePhase {
         Some(next)
     }
 
-    fn advance_state(&self, state: &KnownState, _: RevealIndex) -> TurnResult<KnownState> {
+    fn advance_state(
+        &self,
+        state: &KnownState,
+        _reveal_index: RevealIndex,
+        _hopeless_surrenders: bool,
+    ) -> TurnResult<KnownState> {
         TurnResult::Unfinished(*state)
     }
 
@@ -431,6 +453,7 @@ impl Phase for SeerPhase {
         &self,
         state: &KnownState,
         reveal_index: RevealIndex,
+        hopeless_surrenders: bool,
     ) -> Option<BattleContext> {
         let seer_player_creature = reveal_index
             .decode_seer_phase_reveal(state.graveyard, self.revealed_creature)
@@ -445,11 +468,12 @@ impl Phase for SeerPhase {
             .attempt_collect()
             .unwrap();
 
-        let context = BattleContext {
+        let context = BattleContext::new(
             main_choices,
-            sabotage_choices: self.sabotage_choices,
-            state: *state,
-        };
+            self.sabotage_choices,
+            *state,
+            hopeless_surrenders,
+        );
 
         Some(context)
     }
@@ -459,9 +483,10 @@ impl Phase for SeerPhase {
         &self,
         state: &KnownState,
         reveal_index: RevealIndex,
+        hopeless_surrenders: bool,
     ) -> TurnResult<KnownState> {
         match self
-            .battle_context(state, reveal_index)
+            .battle_context(state, reveal_index, hopeless_surrenders)
             .unwrap()
             .advance_known_state()
             .1
@@ -711,6 +736,7 @@ impl<A, B, C> PerPhase<A, B, C> {
     }
 }
 
+/// Runs a closure on the inner value of the enum.
 macro_rules! per_phase {
     ($s: expr, $f:expr) => {
         match $s {
@@ -723,6 +749,7 @@ macro_rules! per_phase {
 
 impl SomePhase {
     /// Calls the method with the same name on the underlying phase.
+    #[inline(always)]
     pub fn hidden_index_decoding_info(&self) -> hidden_index::DecodingInfo {
         per_phase!(self, |inner| inner.hidden_index_decoding_info())
     }
@@ -732,6 +759,7 @@ impl SomePhase {
         state: KnownState,
         hidden: Pair<hidden_index::HiddenState>,
         decisions: Pair<DecisionIndex>,
+        hopeless_surrenders: bool,
     ) -> Option<
         TurnResult<(
             KnownState,
@@ -744,7 +772,11 @@ impl SomePhase {
         let (next_summary, next_hidden, reveal_index) = per_phase!(self, |inner| inner
             .advance_hidden_indices(summary, hidden, decisions))?;
 
-        let advanced_state = per_phase!(self, |inner| inner.advance_state(&state, reveal_index));
+        let advanced_state = per_phase!(self, |inner| inner.advance_state(
+            &state,
+            reveal_index,
+            hopeless_surrenders
+        ));
         let next_phase: Self = match self {
             Self::Main(inner) => Self::Sabotage(inner.advance_phase(&state, reveal_index)?),
             Self::Sabotage(inner) => Self::Seer(inner.advance_phase(&state, reveal_index)?),
@@ -754,14 +786,24 @@ impl SomePhase {
         let result = advanced_state.map(|next_state| {
             assert_eq!(next_state.to_summary(), next_summary);
 
-            (state, next_hidden, reveal_index, next_phase)
+            (next_state, next_hidden, reveal_index, next_phase)
         });
 
         Some(result)
     }
 
+    #[inline(always)]
     pub fn decision_counts(&self, state: &KnownState) -> Pair<usize> {
         per_phase!(self, |inner| inner.decision_counts(state))
+    }
+
+    #[inline(always)]
+    pub fn sabotage_status(&self, player: Player) -> bool {
+        match self {
+            PerPhase::Main(_) => false,
+            PerPhase::Sabotage(inner) => inner.sabotage_status(player),
+            PerPhase::Seer(inner) => player.select(inner.edict_choices) == Edict::Sabotage,
+        }
     }
 }
 // }}}

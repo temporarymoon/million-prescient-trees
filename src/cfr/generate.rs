@@ -125,7 +125,7 @@ impl<'a> GenerationContext<'a> {
             .allocator
             .alloc_slice_fill_with(phase.reveal_count(&self.state), |index| {
                 let reveal_index = RevealIndex(index);
-                let advanced = phase.advance_state(&self.state, reveal_index);
+                let advanced = phase.advance_state(&self.state, reveal_index, true);
 
                 match advanced {
                     TurnResult::Finished(score) => Scope::Completed(score),
@@ -141,7 +141,7 @@ impl<'a> GenerationContext<'a> {
                         new_self.generate_generic::<P::Next>(
                             next,
                             #[cfg(debug_assertions)]
-                            phase.battle_context(&self.state, reveal_index),
+                            phase.battle_context(&self.state, reveal_index, false),
                         )
                     }
                 }
@@ -202,7 +202,7 @@ impl EstimationContext {
         let (slice_memory_estimate, mut stats) =
             Self::estimate_slice_alloc(reveal_count, |index| {
                 let reveal_index = RevealIndex(index);
-                let advanced = phase.advance_state(&self.state, reveal_index);
+                let advanced = phase.advance_state(&self.state, reveal_index, true);
 
                 match advanced {
                     TurnResult::Finished(_) => {

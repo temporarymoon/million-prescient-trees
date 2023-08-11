@@ -9,7 +9,7 @@ use crate::helpers::ranged::MixRanged;
 use itertools::Itertools;
 
 /// Used to index decision vectors.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Default)]
 pub struct DecisionIndex(pub usize);
 
 impl DecisionIndex {

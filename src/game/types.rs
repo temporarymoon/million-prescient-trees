@@ -133,6 +133,15 @@ impl Score {
             BattleResult::Tied
         }
     }
+
+    /// Returns the score from a given player's perspective.
+    #[inline(always)]
+    pub fn from_perspective(self, player: Player) -> Score {
+        match player {
+            Player::Me => self,
+            Player::You => -self,
+        }
+    }
 }
 
 impl Add<i8> for Score {

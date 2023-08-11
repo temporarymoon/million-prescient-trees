@@ -7,6 +7,7 @@ use crate::game::creature::{Creature, CreatureSet};
 use crate::game::edict::{Edict, EdictSet};
 use crate::game::known_state_summary::KnownStateEssentials;
 use crate::game::status_effect::{StatusEffect, StatusEffectSet};
+use crate::game::types::{BattleResult, Player, Score, TurnResult};
 use crate::helpers::bitfield::Bitfield;
 use crate::helpers::pair::Pair;
 use egui::{Grid, Ui, Vec2, Widget};
@@ -15,13 +16,10 @@ use std::format;
 use std::sync::mpsc::{Receiver, Sender};
 use tracing::Level;
 
-// {{{ General types
-type Decision = Option<DecisionIndex>;
-// }}}
 // {{{ Agent type
 pub struct HumanAgent {
-    sender: Sender<AgentInput>,
-    receiver: Receiver<Decision>,
+    sender: Sender<TurnResult<AgentInput>>,
+    receiver: Receiver<DecisionIndex>,
 }
 // }}}
 // {{{ UI types
@@ -60,17 +58,35 @@ enum HoveredCard {
 
 // Holds stuff required for communication with the ui thread.
 pub struct UIBus {
-    sender: Sender<Decision>,
-    receiver: Receiver<AgentInput>,
+    sender: Sender<DecisionIndex>,
+    receiver: Receiver<TurnResult<AgentInput>>,
+}
+
+/// A value summarizing all the choices a player made during an entire turn.
+///
+/// Some of the data might not yet be available, so we use options everywhere.
+#[derive(Debug, Clone, Copy, Default)]
+struct PlayerHistoryEntry {
+    creature: Option<Creature>,
+    edict: Option<Edict>,
+    sabotage: Option<Creature>,
+}
+
+/// A value summarizing data about a given turn, be it in the past or the future.
+#[derive(Debug, Clone, Copy, Default)]
+struct HistoryEntry {
+    score: Option<Score>,
+    choices: Pair<PlayerHistoryEntry>,
 }
 
 /// State used to render the contents of the individual ui tabs.
 struct UIState {
     // Received from the agent
     input: AgentInput,
+    game_result: Option<BattleResult>,
 
     // Internal state
-    history: [Option<Pair<(Creature, Edict, Option<Creature>)>>; 4],
+    history: [HistoryEntry; 4],
     partial_main_choice: Option<PartialMainPhaseChoice>,
     communication: UIBus,
     decision_sent: bool,
@@ -82,7 +98,7 @@ struct UIState {
 // }}}
 // {{{ Agent implementation
 impl UIBus {
-    pub fn new(sender: Sender<Decision>, receiver: Receiver<AgentInput>) -> Self {
+    pub fn new(sender: Sender<DecisionIndex>, receiver: Receiver<TurnResult<AgentInput>>) -> Self {
         Self { sender, receiver }
     }
 }
@@ -103,15 +119,25 @@ impl HumanAgent {
 }
 
 impl EchoAgent for HumanAgent {
-    fn choose(&mut self, agent_input: AgentInput) -> Option<DecisionIndex> {
+    fn choose(&mut self, agent_input: AgentInput) -> DecisionIndex {
         let _guard = tracing::span!(Level::DEBUG, "human agent choose method");
         tracing::trace!("Sending input");
-        self.sender.send(agent_input).unwrap();
+
+        self.sender
+            .send(TurnResult::Unfinished(agent_input))
+            .unwrap();
+
         tracing::trace!("Input sent");
         let decision = self.receiver.recv().unwrap();
         tracing::trace!("Received decision");
 
         decision
+    }
+
+    fn game_finished(&mut self, score: Score) {
+        let _guard = tracing::span!(Level::DEBUG, "human agent game finished method");
+        tracing::trace!("Received turn result with score={score:?}");
+        self.sender.send(TurnResult::Finished(score)).unwrap();
     }
 }
 // }}}
@@ -270,75 +296,172 @@ impl UIState {
             Self::draw_edict(self, ui, edict, false);
         }
     }
-
-    /// Similar to `draw_creature_set`, but will show additional
-    /// card backs to get the set to a given size.
-    #[inline(always)]
-    fn draw_creature_set_of_length(&mut self, ui: &mut Ui, creatures: CreatureSet, len: usize) {
-        let remaining = len - creatures.len();
-
-        for creature in creatures {
-            self.draw_creature(ui, creature, false);
-        }
-
-        for _ in 0..remaining {
-            self.draw_opt_creature(ui, None);
-        }
-    }
-
-    #[inline(always)]
-    fn draw_creature_set(&mut self, ui: &mut Ui, creatures: CreatureSet) {
-        for creature in creatures {
-            self.draw_creature(ui, creature, false);
-        }
-    }
     // }}}
-    // {{{ Communication
+    // {{{ Agent communication
+    /// Communicates a choice, and marks the decision as sent.
+    #[inline(always)]
+    fn send(&mut self, index: DecisionIndex) {
+        self.communication.sender.send(index).unwrap();
+        self.decision_sent = true;
+    }
+
+    /// Attempts to send the main phase choice the user has made.
+    ///
+    /// Communicates the choice the playe rmade for the sabotage phase.
+    ///
+    /// Acts as a noop if the phase isn't correct, or if the user
+    /// hasn't finished choosing the input just yet.
     fn try_communicate_main(&mut self) {
-        if self.decision_sent {
+        if self.decision_sent || self.input.phase.tag() != PhaseTag::Main {
             return;
         }
 
-        match self.input.phase.tag() {
-            PhaseTag::Main => match self.partial_main_choice {
-                Some(PartialMainPhaseChoice {
+        match self.partial_main_choice {
+            Some(PartialMainPhaseChoice {
+                creatures,
+                edict: Some(edict),
+            }) if creatures.len() == self.input.state.creature_choice_size(self.input.player) => {
+                tracing::event!(Level::INFO, "Sending main phase decision to agent");
+
+                let index = DecisionIndex::encode_main_phase_index(
+                    &self.input.state,
+                    self.input.player,
+                    self.input.hidden.get_main(),
                     creatures,
-                    edict: Some(edict),
-                }) if creatures.len()
-                    == self.input.state.creature_choice_size(self.input.player) =>
-                {
-                    tracing::event!(Level::INFO, "Sending decision to agent");
+                    edict,
+                )
+                .unwrap();
 
-                    let index = DecisionIndex::encode_main_phase_index(
-                        &self.input.state,
-                        self.input.player,
-                        self.input.hidden.get_main(),
-                        creatures,
-                        edict,
-                    );
-
-                    self.communication.sender.send(index).unwrap();
-                    self.decision_sent = true;
-                }
-                _ => {}
-            },
+                self.send(index);
+            }
             _ => {}
         }
     }
 
+    /// Communicates the choice the playe rmade for the seer phase.
+    ///
+    /// Acts as a noop if the phase isn't correct, if the user
+    /// hasn't finished choosing the input just yet, or if the choice
+    /// has already been sent.
+    fn communicate_sabotage(&mut self, guess: Creature) {
+        if self.decision_sent || self.input.phase.tag() != PhaseTag::Sabotage {
+            return;
+        }
+
+        tracing::event!(Level::INFO, "Sending sabotage phase decision to agent");
+
+        let index = DecisionIndex::encode_sabotage_index(
+            &self.input.state,
+            self.input.hidden.get_main(),
+            Some(guess),
+        );
+
+        self.send(index);
+    }
+
+    /// Communicates the choice the playe rmade for the seer phase.
+    ///
+    /// Acts as a noop if the phase isn't correct, if the user
+    /// hasn't finished choosing the input just yet, or if the choice
+    /// has already been sent.
+    fn communicate_seer(&mut self, final_choice: Creature) {
+        if self.decision_sent || self.input.phase.tag() != PhaseTag::Seer {
+            return;
+        }
+
+        tracing::event!(Level::INFO, "Sending seer phase decision to agent");
+
+        let all_choices = self.input.hidden.get_sabotage().unwrap();
+        let index = DecisionIndex::encode_seer_index(all_choices, final_choice).unwrap();
+
+        self.send(index);
+    }
+
     /// Attempts to read data coming from the bus, and updates the internal state accordingly.
     fn try_accept_input(&mut self) {
-        if let Ok(input) = self.communication.receiver.try_recv() {
-            tracing::event!(Level::INFO, "Received input from agent");
+        match self.communication.receiver.try_recv() {
+            Ok(TurnResult::Unfinished(input)) => {
+                tracing::event!(Level::INFO, "Received unfinished input from agent");
 
-            self.input = input;
+                // {{{ Update history
+                if let Some(reveal) = input.last_reveal {
+                    let _guard = tracing::span!(Level::TRACE, "Updating history");
+                    tracing::event!(Level::TRACE, "Updating history");
 
-            self.decision_sent = false;
-            self.partial_main_choice = if self.input.phase.tag() == PhaseTag::Main {
-                Some(PartialMainPhaseChoice::default())
-            } else {
-                None
-            };
+                    let entry = &mut self.history[self.input.state.battlefields.current];
+                    match input.phase {
+                        PerPhase::Sabotage(sabotage) => {
+                            for player in Player::PLAYERS {
+                                let player_entry = player.select_mut(&mut entry.choices);
+                                player_entry.edict = Some(player.select(sabotage.edict_choices));
+                            }
+                        }
+                        PerPhase::Seer(seer) => {
+                            for player in Player::PLAYERS {
+                                let player_entry = player.select_mut(&mut entry.choices);
+                                player_entry.sabotage = player.select(seer.sabotage_choices);
+
+                                if player != self.input.state.last_creature_revealer() {
+                                    player_entry.creature = Some(seer.revealed_creature);
+                                }
+                            }
+                        }
+                        PerPhase::Main(_) => {
+                            entry.score = Some(input.state.score);
+                            let first_revealer = !self.input.state.last_creature_revealer();
+                            let revealed_creature =
+                                first_revealer.select(entry.choices).creature.unwrap();
+
+                            let decoded = reveal
+                                .decode_seer_phase_reveal(
+                                    self.input.state.graveyard,
+                                    revealed_creature,
+                                )
+                                .unwrap();
+
+                            let player_entry = self
+                                .input
+                                .state
+                                .last_creature_revealer()
+                                .select_mut(&mut entry.choices);
+
+                            player_entry.creature = Some(decoded);
+                        }
+                    };
+
+                    tracing::event!(Level::TRACE, "Succesfully updated history");
+                };
+
+                // }}}
+
+                self.input = input;
+                self.partial_main_choice = if input.phase.tag() == PhaseTag::Main {
+                    Some(PartialMainPhaseChoice::default())
+                } else {
+                    None
+                };
+
+                // {{{ Take single choice decisions
+                // If we have a single valid decision we can take, we take it right away.
+                if self
+                    .input
+                    .player
+                    .select(self.input.phase.decision_counts(&self.input.state))
+                    == 1
+                {
+                    tracing::event!(Level::INFO, "Sending single choice decision to agent");
+                    // Send the only possible decision right away!
+                    self.send(DecisionIndex::default());
+                } else {
+                    self.decision_sent = false;
+                }
+                // }}}
+            }
+            Ok(TurnResult::Finished(score)) => {
+                self.game_result =
+                    Some(score.from_perspective(self.input.player).to_battle_result());
+            }
+            _ => {}
         }
     }
     // }}}
@@ -360,6 +483,11 @@ impl egui_dock::TabViewer for UIState {
         match tab {
             // {{{ Field state
             UITab::Field => {
+                if let Some(result) = self.game_result {
+                    ui.heading(format!("Game ended! Game result: {:?}", result));
+                    return;
+                }
+
                 ui.vertical(|ui| {
                     // {{{ Prepare data
                     let opponent_creature_possibilities =
@@ -367,50 +495,79 @@ impl egui_dock::TabViewer for UIState {
 
                     let [my_edict, your_edict] = self.played_edicts();
                     let [my_sabotage, your_sabotage] = self.sabotage_choices();
+
                     let is_main = self.input.phase.tag() == PhaseTag::Main;
-                    let show_sabotage = !is_main;
-                    let show_my_sabotage = match self.input.phase {
-                        PerPhase::Main(_) => false,
-                        PerPhase::Sabotage(inner) => inner.sabotage_status(self.input.player),
-                        PerPhase::Seer(inner) => {
-                            self.input.player.select(inner.edict_choices) == Edict::Sabotage
-                        }
-                    };
+
+                    let show_my_sabotage =
+                        !is_main && self.input.phase.sabotage_status(self.input.player);
+                    let show_your_sabotage =
+                        !is_main && self.input.phase.sabotage_status(!self.input.player);
+
+                    // The following three vars are true when the player is expected to make a
+                    // choice for the respective phase.
+                    let can_make_main_choice = is_main && !self.decision_sent;
+                    let can_make_sabotage_choice = self.input.phase.tag() == PhaseTag::Sabotage
+                        && !self.decision_sent
+                        && show_my_sabotage;
+                    let can_make_seer_choice = self.input.phase.tag() == PhaseTag::Seer
+                        && !self.decision_sent
+                        && self.input.state.seer_status(self.input.player);
                     // }}}
                     // {{{ Opponent's board
                     ui.heading("Opponent's board");
+
+                    // {{{ Edicts
                     ui.horizontal(|ui| {
                         self.draw_edict_set(ui, you.edicts);
                     });
-
+                    // }}}
+                    // {{{ Creatures
                     ui.horizontal(|ui| {
-                        self.draw_creature_set(ui, opponent_creature_possibilities);
-                    });
+                        for creature in opponent_creature_possibilities {
+                            let res = self.draw_creature(ui, creature, can_make_sabotage_choice);
 
+                            if can_make_sabotage_choice && res.clicked() {
+                                self.communicate_sabotage(creature);
+                            }
+                        }
+                    });
+                    // }}}
+                    // {{{ Choices
                     Grid::new("Opponent's choices").show(ui, |ui| {
+                        // {{{ Labels
                         ui.label("Edict");
 
-                        if show_sabotage {
+                        if show_your_sabotage {
                             ui.label("Sabotage");
                         }
 
                         ui.end_row();
+                        // }}}
+
                         self.draw_opt_edict(ui, your_edict);
 
-                        if show_sabotage {
+                        if show_your_sabotage {
                             self.draw_opt_creature(ui, your_sabotage);
                         }
 
                         ui.end_row();
                     });
                     // }}}
-                    ui.separator();
-                    // {{{ Player's board
-                    let can_make_main_choice = is_main && !self.decision_sent;
+                    // }}}
 
+                    ui.separator();
+                    ui.label(format!(
+                        "Your score - opponent's score = {:?}",
+                        self.input.state.score.from_perspective(self.input.player)
+                    ));
+                    ui.separator();
+
+                    // {{{ Player's board
                     ui.heading("Your board");
 
+                    // {{{ Choices
                     Grid::new("Player's choices").show(ui, |ui| {
+                        // {{{ Labels
                         ui.label("Edict");
                         ui.label("Creatures");
 
@@ -419,12 +576,27 @@ impl egui_dock::TabViewer for UIState {
                         }
 
                         ui.end_row();
+                        // }}}
+
                         self.draw_opt_edict(ui, my_edict);
-                        self.draw_creature_set_of_length(
-                            ui,
-                            self.my_creatures().unwrap_or_default(),
-                            self.input.state.creature_choice_size(self.input.player),
-                        );
+
+                        // {{{ Creature choices
+                        let creature_choices = self.my_creatures().unwrap_or_default();
+                        for creature in creature_choices {
+                            let res = self.draw_creature(ui, creature, can_make_seer_choice);
+
+                            if can_make_seer_choice && res.clicked() {
+                                self.communicate_seer(creature)
+                            }
+                        }
+
+                        let max_creature_choice_count =
+                            self.input.state.creature_choice_size(self.input.player);
+
+                        for _ in creature_choices.len()..max_creature_choice_count {
+                            self.textures.card_back.show(ui);
+                        }
+                        // }}}
 
                         if show_my_sabotage {
                             self.draw_opt_creature(ui, my_sabotage);
@@ -432,7 +604,8 @@ impl egui_dock::TabViewer for UIState {
 
                         ui.end_row();
                     });
-
+                    // }}}
+                    // {{{ Edicts
                     ui.horizontal(|ui| {
                         for edict in me.edicts {
                             let res = self.draw_edict(ui, edict, can_make_main_choice);
@@ -444,7 +617,8 @@ impl egui_dock::TabViewer for UIState {
                             }
                         }
                     });
-
+                    // }}}
+                    // {{{ Creatures
                     ui.horizontal(|ui| {
                         for creature in self.input.hidden.get_main() {
                             let res = self.draw_creature(ui, creature, can_make_main_choice);
@@ -465,10 +639,10 @@ impl egui_dock::TabViewer for UIState {
                             }
                         }
                     });
-
+                    // }}}
                     // }}}
                     // {{{ Communicate
-                    if is_main {
+                    if self.input.phase.tag() == PhaseTag::Main {
                         self.try_communicate_main();
                     }
                     // }}}
@@ -491,6 +665,7 @@ impl egui_dock::TabViewer for UIState {
             // {{{ History
             UITab::History => {
                 ui.vertical(|ui| {
+                    // {{{ Battlefields
                     Grid::new("battlefield & history grid").show(ui, |ui| {
                         ui.label("Battlefields");
                         ui.label("Your creature");
@@ -510,26 +685,56 @@ impl egui_dock::TabViewer for UIState {
                                 false,
                             );
 
-                            if let Some([me, you]) = self.history[index] {
-                                self.draw_creature(ui, me.0, false);
-                                self.draw_edict(ui, me.1, false);
-                                self.draw_opt_creature(ui, me.2);
-                                self.draw_opt_creature(ui, you.2);
-                                self.draw_edict(ui, you.1, false);
-                                self.draw_creature(ui, you.0, false);
+                            let entry = self.history[index];
+
+                            if in_the_past {
+                                let [me, you] = self.input.player.order_as(entry.choices);
+                                self.draw_opt_creature(ui, me.creature);
+                                self.draw_opt_edict(ui, me.edict);
+                                self.draw_opt_creature(ui, me.sabotage);
+                                self.draw_opt_creature(ui, you.sabotage);
+                                self.draw_opt_edict(ui, you.edict);
+                                self.draw_opt_creature(ui, you.creature);
                             } else {
                                 for _ in 0..6 {
-                                    if in_the_past {
-                                        self.textures.card_back.show(ui);
-                                    } else {
-                                        Self::draw_gray_image(ui, &self.textures.card_back);
-                                    }
+                                    Self::draw_gray_image(ui, &self.textures.card_back);
                                 }
                             }
 
                             ui.end_row();
                         }
                     });
+                    // }}}
+
+                    let plot = egui::plot::Plot::new("score plot")
+                        .allow_scroll(false)
+                        .allow_drag(false);
+
+                    plot.show(ui, |plot_ui| {
+                        plot_ui.set_plot_bounds(egui::plot::PlotBounds::from_min_max(
+                            [0.3, -10.0],
+                            [4.3, 10.0],
+                        ));
+
+                        let points: Vec<_> = self
+                            .history
+                            .iter()
+                            .enumerate()
+                            .filter_map(|(i, entry)| entry.score.map(|score| (i, score)))
+                            .map(|(i, score)| {
+                                let mut bar = egui::plot::Bar::new(
+                                    i as f64 + 0.5,
+                                    score.from_perspective(self.input.player).0 as f64,
+                                );
+
+                                bar.bar_width = 1.0;
+
+                                bar
+                            })
+                            .collect();
+
+                        plot_ui.bar_chart(egui::plot::BarChart::new(points));
+                    })
                 });
             }
             // }}}
@@ -667,12 +872,18 @@ impl GUIApp {
     /// Called once before the first frame.
     pub fn new(_cc: &eframe::CreationContext<'_>, communication: UIBus) -> Self {
         let ui_state = UIState {
-            input: communication.receiver.recv().unwrap(),
-            history: [None; 4],
+            input: communication
+                .receiver
+                .recv()
+                .unwrap()
+                .get_unfinished()
+                .unwrap(),
+            history: [HistoryEntry::default(); 4],
             partial_main_choice: Some(PartialMainPhaseChoice::default()),
             decision_sent: false,
             textures: AppTextures::new(),
             hovered_card: None,
+            game_result: None,
             communication,
         };
 
@@ -694,6 +905,7 @@ impl GUIApp {
     /// Main rendering function
     fn ui(&mut self, ui: &mut Ui) {
         self.state.try_accept_input();
+
         egui_dock::DockArea::new(&mut self.tab_tree)
             .style(egui_dock::Style::from_egui(ui.style().as_ref()))
             .show_inside(ui, &mut self.state);
