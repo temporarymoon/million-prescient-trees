@@ -173,6 +173,7 @@ pub enum TurnResult<T> {
 }
 
 impl<T> TurnResult<T> {
+    #[inline(always)]
     pub fn is_finished(&self) -> bool {
         match self {
             TurnResult::Finished(_) => true,
@@ -180,6 +181,7 @@ impl<T> TurnResult<T> {
         }
     }
 
+    #[inline(always)]
     pub fn get_unfinished(self) -> Option<T> {
         match self {
             TurnResult::Finished(_) => None,
@@ -188,6 +190,7 @@ impl<T> TurnResult<T> {
     }
 
     /// Maps the inner value kept by this result.
+    #[inline(always)]
     pub fn map<U>(self, f: impl FnOnce(T) -> U) -> TurnResult<U> {
         match self {
             TurnResult::Finished(s) => TurnResult::Finished(s),

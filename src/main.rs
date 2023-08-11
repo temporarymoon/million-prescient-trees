@@ -163,6 +163,7 @@ fn show_gui() {
     let handle = thread::spawn(|| {
         let random_agent = RandomAgent::new(thread_rng());
         let always_zero_agent = AlwaysZeroAgent::default();
+        let opponent_agent = random_agent;
 
         let battlefields = [
             Battlefield::Night,
@@ -174,7 +175,7 @@ fn show_gui() {
         let state = KnownState::new_starting(battlefields);
         let main_phase = echo::cfr::phase::MainPhase::new();
         let phase = echo::cfr::phase::PerPhase::Main(main_phase);
-        let agents = (human_agent, always_zero_agent);
+        let agents = (human_agent, opponent_agent);
         let hidden_state = main_phase
             .valid_hidden_states(state.to_summary())
             .next()

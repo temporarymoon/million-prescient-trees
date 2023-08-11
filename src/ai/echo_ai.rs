@@ -15,7 +15,6 @@ pub struct AgentInput {
     pub state: KnownState,
     pub player: Player,
     pub hidden: hidden_index::EncodingInfo,
-    pub last_reveal: Option<RevealIndex>,
 }
 
 impl AgentInput {
@@ -24,14 +23,12 @@ impl AgentInput {
         state: KnownState,
         hidden: hidden_index::EncodingInfo,
         player: Player,
-        last_reveal: Option<RevealIndex>,
     ) -> Self {
         Self {
             phase,
             state,
             hidden,
             player,
-            last_reveal,
         }
     }
 }
@@ -42,7 +39,12 @@ impl AgentInput {
 /// In the future, the game state *will* be provided for free to the ai.
 pub trait EchoAgent {
     fn choose(&mut self, agent_input: AgentInput) -> DecisionIndex;
-    fn game_finished(&mut self, _score: Score) {}
+
+    #[inline(always)]
+    fn reveal_info(&mut self, _reveal_index: RevealIndex, _updated_score: Score) {}
+
+    #[inline(always)]
+    fn game_finished(&mut self) {}
 }
 // }}}
 // {{{ Game runner
@@ -52,7 +54,6 @@ pub struct EchoRunner<A, B> {
     phase: SomePhase,
     agents: (A, B),
     hidden_state: Pair<hidden_index::EncodingInfo>,
-    last_reveal: Option<RevealIndex>,
 }
 
 impl<A: EchoAgent, B: EchoAgent> EchoRunner<A, B> {
@@ -67,13 +68,12 @@ impl<A: EchoAgent, B: EchoAgent> EchoRunner<A, B> {
             phase,
             agents,
             hidden_state,
-            last_reveal: None,
         }
     }
 
     fn input_for(&self, player: Player) -> Option<AgentInput> {
         let hidden = player.select(self.hidden_state);
-        let input = AgentInput::new(self.phase, self.state, hidden, player, self.last_reveal);
+        let input = AgentInput::new(self.phase, self.state, hidden, player);
 
         Some(input)
     }
@@ -93,7 +93,7 @@ impl<A: EchoAgent, B: EchoAgent> EchoRunner<A, B> {
 
             tracing::event!(Level::DEBUG, "Received both inputs");
 
-            let res = self.phase.advance(
+            let (reveal_index, result) = self.phase.advance(
                 self.state,
                 self.hidden_state.map(HiddenState::from_encoding_info),
                 decisions,
@@ -102,17 +102,28 @@ impl<A: EchoAgent, B: EchoAgent> EchoRunner<A, B> {
 
             tracing::event!(Level::DEBUG, "Advanced state");
 
-            match res {
-                TurnResult::Finished(score) => {
-                    self.agents.0.game_finished(score);
-                    self.agents.1.game_finished(score);
+            let score = match result {
+                TurnResult::Finished(score) => score,
+                TurnResult::Unfinished((state, _, _)) => state.score,
+            };
+
+            self.agents.0.reveal_info(reveal_index, score);
+            self.agents.1.reveal_info(reveal_index, score);
+            tracing::event!(Level::DEBUG, "Pushed reveal indices");
+
+            match result {
+                TurnResult::Finished(_) => {
+                    tracing::event!(Level::DEBUG, "Game finished");
+
+                    self.agents.0.game_finished();
+                    self.agents.1.game_finished();
+
                     return Some(score.to_battle_result());
                 }
-                TurnResult::Unfinished((state, hidden, reveal_index, phase)) => {
+                TurnResult::Unfinished((state, hidden, phase)) => {
                     self.state = state;
                     self.hidden_state = hidden;
                     self.phase = phase;
-                    self.last_reveal = Some(reveal_index);
                 }
             }
         }

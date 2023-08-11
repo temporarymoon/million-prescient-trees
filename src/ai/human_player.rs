@@ -2,12 +2,13 @@ use super::echo_ai::{AgentInput, EchoAgent};
 use super::textures::AppTextures;
 use crate::cfr::decision_index::DecisionIndex;
 use crate::cfr::phase::{PerPhase, PhaseTag};
+use crate::cfr::reveal_index::RevealIndex;
 use crate::game::battlefield::Battlefield;
 use crate::game::creature::{Creature, CreatureSet};
 use crate::game::edict::{Edict, EdictSet};
 use crate::game::known_state_summary::KnownStateEssentials;
 use crate::game::status_effect::{StatusEffect, StatusEffectSet};
-use crate::game::types::{BattleResult, Player, Score, TurnResult};
+use crate::game::types::{Player, Score};
 use crate::helpers::bitfield::Bitfield;
 use crate::helpers::pair::Pair;
 use egui::{Grid, Ui, Vec2, Widget};
@@ -17,8 +18,16 @@ use std::sync::mpsc::{Receiver, Sender};
 use tracing::Level;
 
 // {{{ Agent type
+/// The type of payloads sent from the human agent to the gui.
+#[derive(Debug, Clone, Copy)]
+enum RequestPayload {
+    StateAdvanced(AgentInput),
+    Reveal(RevealIndex, Score),
+    GameFinished,
+}
+
 pub struct HumanAgent {
-    sender: Sender<TurnResult<AgentInput>>,
+    sender: Sender<RequestPayload>,
     receiver: Receiver<DecisionIndex>,
 }
 // }}}
@@ -59,7 +68,7 @@ enum HoveredCard {
 // Holds stuff required for communication with the ui thread.
 pub struct UIBus {
     sender: Sender<DecisionIndex>,
-    receiver: Receiver<TurnResult<AgentInput>>,
+    receiver: Receiver<RequestPayload>,
 }
 
 /// A value summarizing all the choices a player made during an entire turn.
@@ -83,7 +92,7 @@ struct HistoryEntry {
 struct UIState {
     // Received from the agent
     input: AgentInput,
-    game_result: Option<BattleResult>,
+    game_finished: bool,
 
     // Internal state
     history: [HistoryEntry; 4],
@@ -97,8 +106,17 @@ struct UIState {
 }
 // }}}
 // {{{ Agent implementation
+impl RequestPayload {
+    pub fn get_input(&self) -> Option<AgentInput> {
+        match self {
+            Self::StateAdvanced(input) => Some(*input),
+            _ => None,
+        }
+    }
+}
+
 impl UIBus {
-    pub fn new(sender: Sender<DecisionIndex>, receiver: Receiver<TurnResult<AgentInput>>) -> Self {
+    fn new(sender: Sender<DecisionIndex>, receiver: Receiver<RequestPayload>) -> Self {
         Self { sender, receiver }
     }
 }
@@ -124,7 +142,7 @@ impl EchoAgent for HumanAgent {
         tracing::trace!("Sending input");
 
         self.sender
-            .send(TurnResult::Unfinished(agent_input))
+            .send(RequestPayload::StateAdvanced(agent_input))
             .unwrap();
 
         tracing::trace!("Input sent");
@@ -134,10 +152,20 @@ impl EchoAgent for HumanAgent {
         decision
     }
 
-    fn game_finished(&mut self, score: Score) {
+    fn game_finished(&mut self) {
         let _guard = tracing::span!(Level::DEBUG, "human agent game finished method");
-        tracing::trace!("Received turn result with score={score:?}");
-        self.sender.send(TurnResult::Finished(score)).unwrap();
+        tracing::trace!("Game finished");
+
+        self.sender.send(RequestPayload::GameFinished).unwrap();
+    }
+
+    fn reveal_info(&mut self, reveal_index: RevealIndex, updated_score: Score) {
+        let _guard = tracing::span!(Level::DEBUG, "human agent reveal info method");
+        tracing::trace!("Received revealed info, with score={updated_score:?}.");
+
+        self.sender
+            .send(RequestPayload::Reveal(reveal_index, updated_score))
+            .unwrap();
     }
 }
 // }}}
@@ -380,59 +408,9 @@ impl UIState {
     /// Attempts to read data coming from the bus, and updates the internal state accordingly.
     fn try_accept_input(&mut self) {
         match self.communication.receiver.try_recv() {
-            Ok(TurnResult::Unfinished(input)) => {
+            // {{{ State advanced
+            Ok(RequestPayload::StateAdvanced(input)) => {
                 tracing::event!(Level::INFO, "Received unfinished input from agent");
-
-                // {{{ Update history
-                if let Some(reveal) = input.last_reveal {
-                    let _guard = tracing::span!(Level::TRACE, "Updating history");
-                    tracing::event!(Level::TRACE, "Updating history");
-
-                    let entry = &mut self.history[self.input.state.battlefields.current];
-                    match input.phase {
-                        PerPhase::Sabotage(sabotage) => {
-                            for player in Player::PLAYERS {
-                                let player_entry = player.select_mut(&mut entry.choices);
-                                player_entry.edict = Some(player.select(sabotage.edict_choices));
-                            }
-                        }
-                        PerPhase::Seer(seer) => {
-                            for player in Player::PLAYERS {
-                                let player_entry = player.select_mut(&mut entry.choices);
-                                player_entry.sabotage = player.select(seer.sabotage_choices);
-
-                                if player != self.input.state.last_creature_revealer() {
-                                    player_entry.creature = Some(seer.revealed_creature);
-                                }
-                            }
-                        }
-                        PerPhase::Main(_) => {
-                            entry.score = Some(input.state.score);
-                            let first_revealer = !self.input.state.last_creature_revealer();
-                            let revealed_creature =
-                                first_revealer.select(entry.choices).creature.unwrap();
-
-                            let decoded = reveal
-                                .decode_seer_phase_reveal(
-                                    self.input.state.graveyard,
-                                    revealed_creature,
-                                )
-                                .unwrap();
-
-                            let player_entry = self
-                                .input
-                                .state
-                                .last_creature_revealer()
-                                .select_mut(&mut entry.choices);
-
-                            player_entry.creature = Some(decoded);
-                        }
-                    };
-
-                    tracing::event!(Level::TRACE, "Succesfully updated history");
-                };
-
-                // }}}
 
                 self.input = input;
                 self.partial_main_choice = if input.phase.tag() == PhaseTag::Main {
@@ -457,10 +435,64 @@ impl UIState {
                 }
                 // }}}
             }
-            Ok(TurnResult::Finished(score)) => {
-                self.game_result =
-                    Some(score.from_perspective(self.input.player).to_battle_result());
+            // }}}
+            // {{{ Reveal
+            Ok(RequestPayload::Reveal(reveal_index, updated_score)) => {
+                let _guard = tracing::span!(Level::TRACE, "Updating history");
+                tracing::event!(Level::TRACE, "Updating history");
+
+                let entry = &mut self.history[self.input.state.battlefields.current];
+
+                match self
+                    .input
+                    .phase
+                    .advance_phase(&self.input.state, reveal_index)
+                    .unwrap()
+                {
+                    PerPhase::Sabotage(sabotage) => {
+                        for player in Player::PLAYERS {
+                            let player_entry = player.select_mut(&mut entry.choices);
+                            player_entry.edict = Some(player.select(sabotage.edict_choices));
+                        }
+                    }
+                    PerPhase::Seer(seer) => {
+                        for player in Player::PLAYERS {
+                            let player_entry = player.select_mut(&mut entry.choices);
+                            player_entry.sabotage = player.select(seer.sabotage_choices);
+
+                            if player != self.input.state.last_creature_revealer() {
+                                player_entry.creature = Some(seer.revealed_creature);
+                            }
+                        }
+                    }
+                    PerPhase::Main(_) => {
+                        let first_revealer = !self.input.state.last_creature_revealer();
+                        let revealed_creature =
+                            first_revealer.select(entry.choices).creature.unwrap();
+
+                        let decoded = reveal_index
+                            .decode_seer_phase_reveal(self.input.state.graveyard, revealed_creature)
+                            .unwrap();
+
+                        let player_entry = self
+                            .input
+                            .state
+                            .last_creature_revealer()
+                            .select_mut(&mut entry.choices);
+
+                        player_entry.creature = Some(decoded);
+                        entry.score = Some(updated_score);
+                    }
+                };
+
+                tracing::event!(Level::TRACE, "Succesfully updated history");
             }
+            // }}}
+            // {{{ Game finished
+            Ok(RequestPayload::GameFinished) => {
+                self.game_finished = true;
+            }
+            // }}}
             _ => {}
         }
     }
@@ -483,7 +515,16 @@ impl egui_dock::TabViewer for UIState {
         match tab {
             // {{{ Field state
             UITab::Field => {
-                if let Some(result) = self.game_result {
+                if self.game_finished {
+                    let result = self
+                        .history
+                        .last()
+                        .unwrap()
+                        .score
+                        .unwrap()
+                        .from_perspective(self.input.player)
+                        .to_battle_result();
+
                     ui.heading(format!("Game ended! Game result: {:?}", result));
                     return;
                 }
@@ -569,16 +610,20 @@ impl egui_dock::TabViewer for UIState {
                     Grid::new("Player's choices").show(ui, |ui| {
                         // {{{ Labels
                         ui.label("Edict");
-                        ui.label("Creatures");
 
                         if show_my_sabotage {
                             ui.label("Sabotage");
                         }
 
+                        ui.label("Creatures");
                         ui.end_row();
                         // }}}
 
                         self.draw_opt_edict(ui, my_edict);
+
+                        if show_my_sabotage {
+                            self.draw_opt_creature(ui, my_sabotage);
+                        }
 
                         // {{{ Creature choices
                         let creature_choices = self.my_creatures().unwrap_or_default();
@@ -597,10 +642,6 @@ impl egui_dock::TabViewer for UIState {
                             self.textures.card_back.show(ui);
                         }
                         // }}}
-
-                        if show_my_sabotage {
-                            self.draw_opt_creature(ui, my_sabotage);
-                        }
 
                         ui.end_row();
                     });
@@ -677,7 +718,8 @@ impl egui_dock::TabViewer for UIState {
                         ui.end_row();
 
                         for index in 0..4 {
-                            let in_the_past = index < self.input.state.battlefields.current;
+                            let in_the_past =
+                                self.game_finished || index < self.input.state.battlefields.current;
 
                             self.draw_battlefield(
                                 ui,
@@ -705,36 +747,48 @@ impl egui_dock::TabViewer for UIState {
                         }
                     });
                     // }}}
+                    // {{{ Score plot
+                    ui.group(|ui| {
+                        ui.heading("Your score - Opponent's score");
 
-                    let plot = egui::plot::Plot::new("score plot")
-                        .allow_scroll(false)
-                        .allow_drag(false);
+                        let plot = egui::plot::Plot::new("score plot")
+                            .allow_scroll(false)
+                            .allow_drag(false);
 
-                    plot.show(ui, |plot_ui| {
-                        plot_ui.set_plot_bounds(egui::plot::PlotBounds::from_min_max(
-                            [0.3, -10.0],
-                            [4.3, 10.0],
-                        ));
+                        plot.show(ui, |plot_ui| {
+                            let scores = self.history.iter().filter_map(|e| e.score);
+                            let min_score = scores.clone().min().unwrap_or(Score(-5));
+                            let max_score = scores.clone().max().unwrap_or(Score(5));
 
-                        let points: Vec<_> = self
-                            .history
-                            .iter()
-                            .enumerate()
-                            .filter_map(|(i, entry)| entry.score.map(|score| (i, score)))
-                            .map(|(i, score)| {
-                                let mut bar = egui::plot::Bar::new(
-                                    i as f64 + 0.5,
-                                    score.from_perspective(self.input.player).0 as f64,
-                                );
+                            let padding_x = 0.3;
+                            let padding_y = 3.0;
 
-                                bar.bar_width = 1.0;
+                            plot_ui.set_plot_bounds(egui::plot::PlotBounds::from_min_max(
+                                [-padding_x, min_score.0 as f64 - padding_y],
+                                [4.0 + padding_x, max_score.0 as f64 + padding_y],
+                            ));
 
-                                bar
-                            })
-                            .collect();
+                            let points: Vec<_> = self
+                                .history
+                                .iter()
+                                .enumerate()
+                                .filter_map(|(i, entry)| entry.score.map(|score| (i, score)))
+                                .map(|(i, score)| {
+                                    let mut bar = egui::plot::Bar::new(
+                                        i as f64 + 0.5,
+                                        score.from_perspective(self.input.player).0 as f64,
+                                    );
 
-                        plot_ui.bar_chart(egui::plot::BarChart::new(points));
-                    })
+                                    bar.bar_width = 1.0;
+
+                                    bar
+                                })
+                                .collect();
+
+                            plot_ui.bar_chart(egui::plot::BarChart::new(points));
+                        })
+                    });
+                    // }}}
                 });
             }
             // }}}
@@ -774,6 +828,7 @@ impl egui_dock::TabViewer for UIState {
                     // {{{ Description
                     let description = match hovered {
                         HoveredCard::Creature(inner) => Creature::DESCRIPTIONS[inner as usize],
+                        HoveredCard::Edict(inner) => Edict::DESCRIPTIONS[inner as usize],
                         _ => "unwritten",
                     };
 
@@ -872,18 +927,13 @@ impl GUIApp {
     /// Called once before the first frame.
     pub fn new(_cc: &eframe::CreationContext<'_>, communication: UIBus) -> Self {
         let ui_state = UIState {
-            input: communication
-                .receiver
-                .recv()
-                .unwrap()
-                .get_unfinished()
-                .unwrap(),
+            input: communication.receiver.recv().unwrap().get_input().unwrap(),
             history: [HistoryEntry::default(); 4],
             partial_main_choice: Some(PartialMainPhaseChoice::default()),
             decision_sent: false,
             textures: AppTextures::new(),
             hovered_card: None,
-            game_result: None,
+            game_finished: false,
             communication,
         };
 

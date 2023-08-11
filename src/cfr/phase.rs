@@ -754,20 +754,33 @@ impl SomePhase {
         per_phase!(self, |inner| inner.hidden_index_decoding_info())
     }
 
+    /// Similar to calling `.advance_phase` on the inner phase object.
+    pub fn advance_phase<S: KnownStateEssentials>(
+        &self,
+        state: &S,
+        reveal_index: RevealIndex,
+    ) -> Option<Self> {
+        let res = match self {
+            Self::Main(inner) => Self::Sabotage(inner.advance_phase(state, reveal_index)?),
+            Self::Sabotage(inner) => Self::Seer(inner.advance_phase(state, reveal_index)?),
+            Self::Seer(inner) => Self::Main(inner.advance_phase(state, reveal_index)?),
+        };
+
+        Some(res)
+    }
+
+    /// The biggest advane-function so far. Advances some state to the value it takes
+    /// during the next phase, returning all sorts of things computed along the way.
     pub fn advance(
         &self,
         state: KnownState,
         hidden: Pair<hidden_index::HiddenState>,
         decisions: Pair<DecisionIndex>,
         hopeless_surrenders: bool,
-    ) -> Option<
-        TurnResult<(
-            KnownState,
-            Pair<hidden_index::EncodingInfo>,
-            RevealIndex,
-            Self,
-        )>,
-    > {
+    ) -> Option<(
+        RevealIndex,
+        TurnResult<(KnownState, Pair<hidden_index::EncodingInfo>, Self)>,
+    )> {
         let summary = state.to_summary();
         let (next_summary, next_hidden, reveal_index) = per_phase!(self, |inner| inner
             .advance_hidden_indices(summary, hidden, decisions))?;
@@ -777,26 +790,27 @@ impl SomePhase {
             reveal_index,
             hopeless_surrenders
         ));
-        let next_phase: Self = match self {
-            Self::Main(inner) => Self::Sabotage(inner.advance_phase(&state, reveal_index)?),
-            Self::Sabotage(inner) => Self::Seer(inner.advance_phase(&state, reveal_index)?),
-            Self::Seer(inner) => Self::Main(inner.advance_phase(&state, reveal_index)?),
-        };
 
+        let next_phase: Self = self.advance_phase(&state, reveal_index)?;
         let result = advanced_state.map(|next_state| {
             assert_eq!(next_state.to_summary(), next_summary);
 
-            (next_state, next_hidden, reveal_index, next_phase)
+            (next_state, next_hidden, next_phase)
         });
 
-        Some(result)
+        Some((reveal_index, result))
     }
 
+    /// Similar to calling the method with the same name on the inner phase object.
     #[inline(always)]
     pub fn decision_counts(&self, state: &KnownState) -> Pair<usize> {
         per_phase!(self, |inner| inner.decision_counts(state))
     }
 
+    /// Returns `true` if the given player has played the sabotage edict
+    /// this turn.
+    ///
+    /// Note: this returns `false` if the player is yet to play an edict
     #[inline(always)]
     pub fn sabotage_status(&self, player: Player) -> bool {
         match self {
